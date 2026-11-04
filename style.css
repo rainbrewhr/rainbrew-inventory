@@ -296,3 +296,17 @@ p.muted{margin:6px 0 0}
   .hello h2{font-size:24px}
   .hello .row .btn{flex:1}
 }
+
+/* ---------- floating request buttons ---------- */
+.fabs{position:fixed;right:max(20px,env(safe-area-inset-right));bottom:calc(20px + env(safe-area-inset-bottom));z-index:40;display:flex;flex-direction:column;align-items:flex-end;gap:12px}
+.fab{display:inline-flex;align-items:center;justify-content:center;gap:10px;height:58px;min-width:58px;padding:0;border:0;border-radius:999px;background:var(--accent);color:#fff;font:700 14px var(--sans);cursor:pointer;box-shadow:0 12px 28px -8px rgba(196,80,27,.65),0 2px 6px rgba(42,29,20,.2);transition:transform .18s var(--ease),box-shadow .18s,padding .18s}
+.fab:hover{transform:translateY(-3px) scale(1.03);box-shadow:0 18px 34px -8px rgba(196,80,27,.7),0 2px 6px rgba(42,29,20,.2)}
+.fab:active{transform:scale(.97)}
+.fab.alt{height:50px;min-width:50px;background:var(--panel);color:var(--text);border:1px solid var(--line2);box-shadow:0 10px 24px -10px rgba(42,29,20,.45)}
+.fab span{display:none;white-space:nowrap}
+@media (min-width:768px){.fab{padding:0 22px 0 18px}.fab span{display:inline}.fab.alt{padding:0 20px 0 16px}}
+body.has-fab main{padding-bottom:120px}
+@media (max-width:767px){.fabs{right:16px;bottom:calc(16px + env(safe-area-inset-bottom))}}
+
+.fab.cur{box-shadow:0 0 0 3px var(--bg),0 0 0 5px var(--accent),0 12px 28px -8px rgba(196,80,27,.5)}
+.fab.alt.cur{box-shadow:0 0 0 3px var(--bg),0 0 0 5px var(--text),0 10px 24px -10px rgba(42,29,20,.45)}
