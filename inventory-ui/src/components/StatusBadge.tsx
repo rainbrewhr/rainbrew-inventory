@@ -16,6 +16,8 @@ export function StatusBadge({ item, className }: { item: Level; className?: stri
 
 /** Thin gauge: filled up to 2× the reorder point so "healthy" reads as mostly full. */
 export function StockMeter({ item, className }: { item: Level; className?: string }) {
+  // Without a reorder point there is nothing to measure against.
+  if (item.reorderPoint <= 0) return <div className={cn('h-1.5 w-full rounded-full border border-dashed border-slate-300 dark:border-slate-700', className)} role="img" aria-label="Reorder level not set" title="Reorder level not set" />;
   const s = STATUS_STYLES[getStatus(item)];
   const full = Math.max(item.reorderPoint * 2, 1);
   const pct = Math.max(0, Math.min(100, (item.onHand / full) * 100));

@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, ClipboardCheck, LayoutDashboard, Settings, ShoppingCart, ArrowLeftRight, X, type LucideIcon } from 'lucide-react';
+import { BarChart3, Boxes, ClipboardCheck, LayoutDashboard, LogOut, Settings, ShoppingCart, ArrowLeftRight, X, type LucideIcon } from 'lucide-react';
 import { useRef } from 'react';
 import { cn } from '../lib/cn';
 import { useOverlay } from '../hooks/useOverlay';
@@ -58,36 +58,44 @@ function NavList({ active, onSelect, compact }: { active: string; onSelect: (id:
   );
 }
 
-function UserBlock({ compact }: { compact?: boolean }) {
+export interface NavUser { name: string; role: string }
+
+function initials(name: string): string {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join('') || '?';
+}
+
+function UserBlock({ compact, user, onSignOut }: { compact?: boolean; user?: NavUser; onSignOut?: () => void }) {
+  const u = user ?? { name: 'M. Clemente', role: 'Administrator' };
   return (
-    <div className={cn('flex items-center gap-2.5 border-t border-slate-200 p-3 dark:border-slate-800', compact && 'justify-center p-2')}>
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200" aria-hidden>MC</span>
+    <div className={cn('flex items-center gap-2.5 border-t border-slate-200 p-3 dark:border-slate-800', compact && 'flex-col p-2')}>
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200" title={compact ? `${u.name} · ${u.role}` : undefined} aria-hidden>{initials(u.name)}</span>
       {!compact && (
-        <span className="min-w-0 leading-tight">
-          <span className="block truncate text-[13px] font-medium">M. Clemente</span>
-          <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">Administrator</span>
+        <span className="min-w-0 flex-1 leading-tight">
+          <span className="block truncate text-[13px] font-medium">{u.name}</span>
+          <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">{u.role}</span>
         </span>
       )}
+      {onSignOut && <button onClick={onSignOut} className="icon-btn" aria-label="Sign out" title="Sign out"><LogOut className="h-4 w-4" /></button>}
     </div>
   );
 }
 
 /** Tablet (md): icon rail. Desktop (lg+): full sidebar. Hidden on mobile, where `MobileNav` takes over. */
-export function Sidebar({ active, onSelect }: { active: string; onSelect: (id: string) => void }) {
+export function Sidebar({ active, onSelect, user, onSignOut }: { active: string; onSelect: (id: string) => void; user?: NavUser; onSignOut?: () => void }) {
   return (
     <>
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-16 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 md:flex lg:hidden">
-        <Brand compact /><NavList active={active} onSelect={onSelect} compact /><UserBlock compact />
+        <Brand compact /><NavList active={active} onSelect={onSelect} compact /><UserBlock compact user={user} onSignOut={onSignOut} />
       </aside>
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:flex">
-        <Brand /><NavList active={active} onSelect={onSelect} /><UserBlock />
+        <Brand /><NavList active={active} onSelect={onSelect} /><UserBlock user={user} onSignOut={onSignOut} />
       </aside>
     </>
   );
 }
 
 /** Mobile slide-out drawer opened from the hamburger. */
-export function MobileNav({ open, onClose, active, onSelect }: { open: boolean; onClose: () => void; active: string; onSelect: (id: string) => void }) {
+export function MobileNav({ open, onClose, active, onSelect, user, onSignOut }: { open: boolean; onClose: () => void; active: string; onSelect: (id: string) => void; user?: NavUser; onSignOut?: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   useOverlay(open, onClose, closeRef);
   return (
@@ -102,7 +110,7 @@ export function MobileNav({ open, onClose, active, onSelect }: { open: boolean; 
           <button ref={closeRef} onClick={onClose} className="icon-btn absolute right-2 top-1.5" aria-label="Close navigation"><X className="h-5 w-5" /></button>
         </div>
         <NavList active={active} onSelect={(id) => { onSelect(id); onClose(); }} />
-        <UserBlock />
+        <UserBlock user={user} onSignOut={onSignOut} />
       </aside>
     </div>
   );

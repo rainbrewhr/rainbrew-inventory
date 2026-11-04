@@ -65,14 +65,14 @@ export function InventoryDrawer({ item, open, history, historyLoading, onClose, 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               <dl className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-200 dark:border-slate-800 dark:bg-slate-800">
                 <Stat label="On hand" value={fmtQty(item.onHand)} unit={item.unit} />
-                <Stat label="Reorder point" value={fmtQty(item.reorderPoint)} unit={item.unit} />
-                <Stat label="Critical level" value={fmtQty(item.criticalLevel)} unit={item.unit} />
+                <Stat label="Reorder point" value={item.reorderPoint > 0 ? fmtQty(item.reorderPoint) : '—'} unit={item.reorderPoint > 0 ? item.unit : undefined} />
+                <Stat label="Critical level" value={item.criticalLevel > 0 ? fmtQty(item.criticalLevel) : '—'} unit={item.criticalLevel > 0 ? item.unit : undefined} />
                 <Stat label="Last movement" value={fmtRelative(item.updatedAt)} plain />
               </dl>
 
               <section className="border-b border-slate-200 px-4 py-4 dark:border-slate-800" aria-label="Stock level">
                 <StockMeter item={item} />
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Marker shows the reorder point. Bar is scaled to twice that level.</p>
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{item.reorderPoint > 0 ? 'Marker shows the reorder point. Bar is scaled to twice that level.' : 'No reorder level is set for this item yet.'}</p>
               </section>
 
               <section className="border-b border-slate-200 px-4 py-4 dark:border-slate-800" aria-label="Attributes">

@@ -1,7 +1,8 @@
 import type { InventoryItem, StockStatus } from '../types';
 
 export function getStatus(item: Pick<InventoryItem, 'onHand' | 'reorderPoint' | 'criticalLevel'>): StockStatus {
-  if (item.onHand <= item.criticalLevel) return 'critical';
+  // Nothing on the shelf is always critical, even when no levels have been configured for the item yet.
+  if (item.onHand <= 0 || item.onHand <= item.criticalLevel) return 'critical';
   if (item.onHand <= item.reorderPoint) return 'low';
   return 'optimal';
 }

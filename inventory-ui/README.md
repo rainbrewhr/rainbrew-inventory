@@ -9,20 +9,26 @@ npm run dev        # http://localhost:5173
 npm run build      # typecheck + production build
 ```
 
-## Map it to your API
-Implement three calls and pass them in — no other file changes:
+## Connected to Supabase
+`src/main.tsx` signs people in (same email and password as the Rainbrew apps) and runs the UI on `src/data/supabaseAdapter.ts`.
+Everything is read and written as the signed-in user, so row-level security decides what each role can do.
 
-```tsx
-import App from './App';
-const api: InventoryAdapter = {
-  listItems:       () => fetch('/api/items').then(r => r.json()).then(rows => rows.map(toInventoryItem)),
-  getAuditHistory: (id) => fetch(`/api/items/${id}/history`).then(r => r.json()).then(rows => rows.map(toAuditEntry)),
-  adjustStock:     (req) => post('/api/adjustments', req),   // resolve with the updated items; throw Error(message) to show it in the modal
-};
-<App adapter={api} onNewItem={openCreateItem} />
-```
+| UI | Supabase |
+|---|---|
+| Item list | `catalog()` (items + live stock), `suppliers`, latest `stock_movements` per item (active items only) |
+| Audit history | `stock_movements` for the item, with the running balance worked back from `item_stock` |
+| Adjust / batch adjust | `adjust_stock(p_item_ids, p_delta, p_reason, p_note)` — posts ADJUST movements under one `ADJ-MMDD-n` reference; refuses to go below zero (migration `supabase/migrations/006_adjust_stock.sql`) |
+| User chip + sign out | `profiles` (name, role); accounts that are pending or disabled see a notice instead of the app |
 
-`InventoryItem.onHand / reorderPoint / criticalLevel` drive the status badge (optimal / low / critical, and "Out of stock" at 0).
+Notes
+- Only **Admin** and **Stock Keeper** may adjust stock; other roles can browse but the adjustment is rejected with a clear message.
+- The database has no SKU codes, so the SKU column shows a short stable code derived from the item id (`RB-0F7E06`).
+- Reorder and critical levels that are not set yet are treated as "no alert"; zero stock is always shown as critical / out of stock.
+- Config: `src/lib/supabase.ts` (URL + publishable key, safe to commit). Override with `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY`.
+- `VITE_USE_MOCK=true npm run dev` runs the in-memory mock instead.
+
+## Using a different backend
+Implement the three calls of `InventoryAdapter` (`src/types.ts`) and pass it in: `<App adapter={api} onNewItem={openCreateItem} />`.
 
 ## Layout by breakpoint
 | Viewport | Navigation | Inventory | Inspector |
