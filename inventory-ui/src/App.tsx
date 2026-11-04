@@ -8,7 +8,7 @@ import type { AdjustRequest, FilterKey, InventoryAdapter, InventoryItem, SortKey
 import { CommandHeader, FilterPills } from './components/CommandHeader';
 import { InventoryDrawer } from './components/InventoryDrawer';
 import { InventoryList } from './components/InventoryList';
-import { MobileNav, Sidebar } from './components/Navigation';
+import { MobileNav, Sidebar, type NavUser } from './components/Navigation';
 import { SelectionBar } from './components/SelectionBar';
 import { StockModal } from './components/StockModal';
 import { Toast } from './components/Toast';
@@ -18,9 +18,12 @@ interface AppProps {
   adapter?: InventoryAdapter;
   /** Called when "New Item" is pressed. Wire this to your create-item flow. */
   onNewItem?: () => void;
+  /** Signed-in person, shown in the sidebar. */
+  user?: NavUser;
+  onSignOut?: () => void;
 }
 
-export default function App({ adapter = mockAdapter, onNewItem }: AppProps) {
+export default function App({ adapter = mockAdapter, onNewItem, user, onSignOut }: AppProps) {
   const inv = useInventory(adapter);
   const { theme, toggle } = useTheme();
 
@@ -79,8 +82,8 @@ export default function App({ adapter = mockAdapter, onNewItem }: AppProps) {
 
   return (
     <div className="flex h-dvh overflow-hidden">
-      <Sidebar active={nav} onSelect={setNav} />
-      <MobileNav open={menuOpen} onClose={() => setMenuOpen(false)} active={nav} onSelect={setNav} />
+      <Sidebar active={nav} onSelect={setNav} user={user} onSignOut={onSignOut} />
+      <MobileNav open={menuOpen} onClose={() => setMenuOpen(false)} active={nav} onSelect={setNav} user={user} onSignOut={onSignOut} />
 
       <div className={cn('flex min-w-0 flex-1 flex-col transition-[padding] duration-200 motion-reduce:transition-none md:pl-16 lg:pl-60', drawerItem && 'xl:pr-[420px]')}>
         <CommandHeader
