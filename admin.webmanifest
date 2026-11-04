@@ -1,8 +1,8 @@
 {
   "id": "./admin.html",
-  "name": "Rainbrew Admin",
-  "short_name": "RB Admin",
-  "description": "Rainbrew Inventory - Admin",
+  "name": "Rainbrew Inventory System",
+  "short_name": "Rainbrew Inventory",
+  "description": "Rainbrew Inventory System",
   "start_url": "admin.html",
   "scope": "./",
   "display": "standalone",

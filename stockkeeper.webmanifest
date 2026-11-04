@@ -1,8 +1,8 @@
 {
   "id": "./stockkeeper.html",
-  "name": "Rainbrew Stock Keeper",
-  "short_name": "RB Stock",
-  "description": "Rainbrew Inventory - Stock Keeper",
+  "name": "Rainbrew Inventory System",
+  "short_name": "Rainbrew Inventory",
+  "description": "Rainbrew Inventory System",
   "start_url": "stockkeeper.html",
   "scope": "./",
   "display": "standalone",

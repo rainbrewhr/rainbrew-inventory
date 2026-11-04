@@ -17,9 +17,12 @@
   function supMap() { var m = {}; (S.suppliers || []).forEach(function (s) { m[s.id] = s.name; }); return m; }
 
   /* ---------- print + export ---------- */
-  var PRINT_CSS = 'body{font:12px/1.4 Arial,sans-serif;color:#000;margin:0}h1{font-size:16px;margin:4px 0}h2{font-size:13px;margin:14px 0 4px}table{width:100%;border-collapse:collapse;margin:4px 0 8px}' +
-    'th,td{border:1px solid #444;padding:3px 5px;text-align:left;vertical-align:top}th{background:#eee}td.n,th.n{text-align:right}.c{text-align:center}.t{font-size:15px;font-weight:bold}.m{font-size:11px}' +
-    '.sig{margin-top:14px}.gen{font-size:10px;color:#444}.slip{page-break-after:always}.slip:last-child{page-break-after:auto}.hd{text-align:center;margin-bottom:8px}.hd p{margin:2px 0}.no{color:#666}';
+  var LOGO = new URL('icon-192.png', location.href).href;
+  var PRINT_CSS = 'body{font:12px/1.4 Arial,sans-serif;color:#000;margin:0}h1{font-size:16px;margin:4px 0}h2{font-size:13px;margin:14px 0 4px}' +
+    'table{width:100%;border-collapse:collapse;table-layout:fixed;margin:4px 0 8px}th,td{border:1px solid #444;padding:3px 5px;text-align:left;vertical-align:top;font-size:11px;overflow-wrap:anywhere;word-break:break-word}' +
+    'td{height:19px}th{background:#eee}td.n,th.n{text-align:right}.c{text-align:center}.t{font-size:15px;font-weight:bold}.m{font-size:11px}' +
+    '.sig{margin-top:14px}.gen{font-size:10px;color:#444}.slip{page-break-after:always}.slip:last-child{page-break-after:auto}.hd{text-align:center;margin-bottom:8px}.hd p{margin:2px 0}.no{color:#666}' +
+    '.lg{display:block;margin:0 auto 4px;height:15mm;width:auto}.slip .lg{height:10mm}tr{page-break-inside:avoid}';
   function printHtml(title, body, size) {
     var f = document.createElement('iframe');
     f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
@@ -28,7 +31,13 @@
     d.open();
     d.write('<!doctype html><meta charset="utf-8"><title>' + esc(title) + '</title><style>' + PRINT_CSS + '@page{size:' + (size || 'A4') + ';margin:' + (size === 'A6' ? '6mm' : '12mm') + '}</style>' + body);
     d.close();
-    setTimeout(function () { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(function () { f.remove(); }, 2000); }, 300);
+    var tries = 0;
+    (function go() {
+      var imgs = [].slice.call(d.images), ready = imgs.every(function (i) { return i.complete; });
+      if (!ready && tries++ < 20) return setTimeout(go, 100);
+      f.contentWindow.focus(); f.contentWindow.print();
+      setTimeout(function () { f.remove(); }, 2000);
+    })();
   }
   function csv(name, rows) {
     var t = rows.map(function (r) { return r.map(function (c) { return '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"'; }).join(','); }).join('\n');
@@ -37,23 +46,28 @@
     a.download = name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 3000);
   }
-  function table(head, rows, numCols) {
-    numCols = numCols || [];
+  // every table gets fixed column widths (same on every page of a document); text wraps so nothing is cut off
+  function widthsFor(n) {
+    var first = n <= 3 ? 46 : n <= 5 ? 34 : 26, rest = (100 - first) / (n - 1);
+    return [first].concat(Array.apply(null, Array(n - 1)).map(function () { return Math.round(rest * 10) / 10; }));
+  }
+  function table(head, rows, numCols, widths) {
+    numCols = numCols || []; widths = widths || widthsFor(head.length);
     if (!rows.length) return '<p class="no">No records found.</p>';
-    return '<table><thead><tr>' + head.map(function (h, i) { return '<th' + (numCols.indexOf(i) >= 0 ? ' class="n"' : '') + '>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+    return '<table><colgroup>' + widths.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup><thead><tr>' + head.map(function (h, i) { return '<th' + (numCols.indexOf(i) >= 0 ? ' class="n"' : '') + '>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
       rows.map(function (r) { return '<tr>' + r.map(function (c, i) { return '<td' + (numCols.indexOf(i) >= 0 ? ' class="n"' : '') + '>' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>';
   }
   function docHead(title, sub) {
-    return '<div class="hd"><b>RAINBREW COFFEE SHOP</b><h1>' + esc(title) + '</h1>' + (sub ? '<p>' + esc(sub) + '</p>' : '') + '<p class="gen">Generated: ' + esc(nowManila()) + ' (Manila)</p></div>';
+    return '<div class="hd"><img class="lg" src="' + LOGO + '" alt="Rainbrew"><b>RAINBREW COFFEE SHOP</b><h1>' + esc(title) + '</h1>' + (sub ? '<p>' + esc(sub) + '</p>' : '') + '<p class="gen">Generated: ' + esc(nowManila()) + ' (Manila)</p></div>';
   }
   function slip(r) {
     var rows = (r.request_items || []).filter(function (l) { return l.status !== 'Removed'; }).map(function (l) {
       var it = S.map.get(l.item_id);
       return '<tr><td>' + esc(l.items && l.items.name) + '</td><td class="n">' + fmt(l.requested_qty) + '</td><td>' + esc(l.unit || '') + '</td><td>' + esc(it ? (it.stocked_at || []).join(' / ') : '') + '</td></tr>';
     }).join('');
-    return '<section class="slip"><div class="c"><b>RAINBREW COFFEE SHOP</b></div><div class="c t">' + (r.type === 'Purchase' ? 'PURCHASE REQUEST' : 'STOCK REQUEST') + '</div><div class="c"><b>' + esc(r.id) + ' · ' + esc(r.status) + '</b></div>' +
+    return '<section class="slip"><div class="c"><img class="lg" src="' + LOGO + '" alt="Rainbrew"><b>RAINBREW COFFEE SHOP</b></div><div class="c t">' + (r.type === 'Purchase' ? 'PURCHASE REQUEST' : 'STOCK REQUEST') + '</div><div class="c"><b>' + esc(r.id) + ' · ' + esc(r.status) + '</b></div>' +
       '<p class="m">Date: ' + esc(when(r.created_at)) + ' | Requester: ' + esc(r.requester_name || '') + ' | Requesting station: ' + esc(r.station || '') + (r.notes ? ' | Note: ' + esc(r.notes) : '') + '</p>' +
-      '<table><thead><tr><th>Item</th><th class="n">Qty</th><th>Unit</th><th>Stock Room / Location</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<table><colgroup><col style="width:38%"><col style="width:12%"><col style="width:14%"><col style="width:36%"></colgroup><thead><tr><th>Item</th><th class="n">Qty</th><th>Unit</th><th>Stock Room / Location</th></tr></thead><tbody>' + rows + '</tbody></table>' +
       '<p class="sig">Prepared / checked by: ____________________</p><p class="gen">Generated: ' + esc(nowManila()) + ' (Manila)</p></section>';
   }
   function printSlips(list, title) { if (!list.length) return toast('Nothing to print', true); printHtml(title || 'Request slips', list.map(slip).join(''), 'A6'); }
@@ -163,23 +177,24 @@
     $('#pa', box).onclick = function () { printSlips(visible(), 'Open requests'); };
   };
 
-  /* ---------- Buy list (grouped by supplier, urgent merged, print) ---------- */
+  /* ---------- Buy list (grouped by supplier; alternative supplier + actual bought; print) ---------- */
+  var BUY_HEAD = ['Item', 'In stock', 'Order qty', 'Unit', 'Alternative supplier', 'Actual bought'], BUY_W = [30, 10, 12, 10, 24, 14];
   V.buy = async function (box) {
     await R.loadCatalog(true);
     var sups = await R.suppliers(), sm = supMap(), st = F.buy;
+    st.actual = st.actual || {};
     var purs = await q(R.requestSelect('Purchase'));
     var rows = {};
-    S.items.filter(function (i) { return i.active && (i.status === 'LOW' || i.status === 'CRITICAL'); }).forEach(function (i) {
-      rows[i.id] = { item: i, qty: R.suggested(i), why: [i.status] };
-    });
+    S.items.filter(function (i) { return i.active && (i.status === 'LOW' || i.status === 'CRITICAL'); }).forEach(function (i) { rows[i.id] = { item: i, qty: R.suggested(i) }; });
     purs.forEach(function (p) {
       R.openLines(p).forEach(function (l) {
         var it = S.map.get(l.item_id); if (!it) return;
-        var r = rows[it.id] || (rows[it.id] = { item: it, qty: 0, why: [] });
-        r.qty = Math.max(r.qty, Number(l.remaining_qty)); r.why.push('URGENT ' + p.id);
+        var r = rows[it.id] || (rows[it.id] = { item: it, qty: 0 });
+        r.qty = Math.max(r.qty, Number(l.remaining_qty));
       });
     });
     var all = Object.keys(rows).map(function (k) { return rows[k]; });
+    function alt(i) { return [sm[i.alt_supplier_1_id], sm[i.alt_supplier_2_id]].filter(Boolean).join(', '); }
     box.innerHTML = '<div class="card"><div class="row"><h2 class="grow">Buy list</h2><button class="btn alt sm" id="bp">Print all</button><button class="btn alt sm" id="bc">CSV</button></div><p class="muted" id="bn"></p></div>' +
       fbar([{ t: 's', k: 'q', ph: 'Search item…' }, { t: 'c', k: 'sup', ph: 'All suppliers', o: sups.map(function (s) { return { value: s.id, label: s.name }; }) }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'status', ph: 'Any urgency', o: ['CRITICAL', 'LOW'] }], st) + '<div id="bg"></div>';
     var shown = [];
@@ -188,6 +203,8 @@
       var g = {}; shown.forEach(function (r) { var k = sm[r.item.supplier_id] || 'No supplier set'; (g[k] = g[k] || []).push(r); });
       return g;
     }
+    function bought(r) { return st.actual[r.item.id] == null ? '' : st.actual[r.item.id]; }
+    function rowsFor(rs) { return rs.map(function (r) { return [r.item.name, fmt(r.item.current_stock), fmt(r.qty), R.unitFor(r.item), alt(r.item), bought(r)]; }); }
     function listText(name, rs) { return name + '\n' + rs.map(function (r) { return '- ' + r.item.name + ': ' + fmt(r.qty) + ' ' + R.unitFor(r.item); }).join('\n'); }
     function draw() {
       var g = group(), names = Object.keys(g).sort(), out = $('#bg', box); out.innerHTML = '';
@@ -195,21 +212,28 @@
       if (!names.length) out.innerHTML = '<div class="card muted">Nothing needs buying. (Set reorder levels per item in Admin → Items.)</div>';
       names.forEach(function (n) {
         var rs = g[n], c = document.createElement('div'); c.className = 'card';
-        c.innerHTML = '<div class="row"><h2 class="grow">' + esc(n) + '</h2><button class="btn alt sm" data-p>Print</button><button class="btn alt sm" data-c>Copy</button></div><div class="tbl"><table><thead><tr><th>Item</th><th class="num">Stock</th><th class="num">Order</th><th class="hm">Alt supplier</th><th class="hm num">Lead d</th><th>Why</th></tr></thead><tbody>' +
-          rs.map(function (r) { var i = r.item; return '<tr><td>' + esc(i.name) + '</td><td class="num">' + fmt(i.current_stock) + '</td><td class="num">' + fmt(r.qty) + ' ' + esc(R.unitFor(i)) + '</td><td class="hm">' + esc([sm[i.alt_supplier_1_id], sm[i.alt_supplier_2_id]].filter(Boolean).join(', ')) + '</td><td class="num hm">' + fmt(i.lead_time_days) + '</td><td>' + r.why.map(function (w) { return /^URGENT/.test(w) ? '<span class="pill CRITICAL">' + esc(w) + '</span>' : pill(w); }).join(' ') + '</td></tr>'; }).join('') + '</tbody></table></div>';
-        $('[data-p]', c).onclick = function () { printHtml('Buy list ' + n, buyDoc([[n, rs]])); };
+        c.innerHTML = '<div class="row"><h2 class="grow">' + esc(n) + '</h2><button class="btn alt sm" data-p>Print</button><button class="btn alt sm" data-c>Copy</button><button class="btn sm" data-r>Receive bought</button></div><div class="tbl"><table class="fx"><colgroup>' + BUY_W.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup><thead><tr>' +
+          BUY_HEAD.map(function (h, i) { return '<th' + ([1, 2, 5].indexOf(i) >= 0 ? ' class="num"' : '') + '>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+          rs.map(function (r) { var i = r.item; return '<tr><td>' + esc(i.name) + '</td><td class="num">' + fmt(i.current_stock) + '</td><td class="num">' + fmt(r.qty) + '</td><td>' + esc(R.unitFor(i)) + '</td><td>' + esc(alt(i)) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-act="' + i.id + '" value="' + esc(bought(r)) + '"></td></tr>'; }).join('') + '</tbody></table></div>';
+        $('[data-p]', c).onclick = function () { printHtml('Buy list ' + n, buyDoc([[n, rs]]), 'A4'); };
         $('[data-c]', c).onclick = function () { var t = listText(n, rs); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('Copied'); }, function () { prompt('Copy this list', t); }); };
+        $('[data-r]', c).onclick = function () {
+          var lines = rs.filter(function (r) { return Number(bought(r)) > 0; }).map(function (r) { return { item: r.item, qty: String(bought(r)) }; });
+          if (!lines.length) return toast('Type the actual bought quantities first', true);
+          R.prefill = { supplier: n === 'No supplier set' ? '' : n, lines: lines }; R.show('receive');
+        };
         out.appendChild(c);
       });
     }
     function buyDoc(pairs) {
       return docHead('Procurement Buy List', today()) + pairs.map(function (p) {
-        return '<h2>' + esc(p[0]) + '</h2>' + table(['Item', 'In stock', 'Order qty', 'Unit', 'Why'], p[1].map(function (r) { return [r.item.name, fmt(r.item.current_stock), fmt(r.qty), R.unitFor(r.item), r.why.join(', ')]; }), [1, 2]);
+        return '<h2>' + esc(p[0]) + '</h2>' + table(BUY_HEAD, rowsFor(p[1]), [1, 2, 5], BUY_W);
       }).join('') + '<p class="sig">Prepared / checked by: ____________________</p>';
     }
+    $('#bg', box).addEventListener('input', function (e) { var el = e.target.closest('[data-act]'); if (el) st.actual[el.dataset.act] = el.value; });
     wire(box, st, draw); draw();
-    $('#bp', box).onclick = function () { var g = group(); printHtml('Buy list', buyDoc(Object.keys(g).sort().map(function (n) { return [n, g[n]]; }))); };
-    $('#bc', box).onclick = function () { var g = group(); csv('buy-list-' + today() + '.csv', [['Supplier', 'Item', 'In stock', 'Order qty', 'Unit', 'Why']].concat([].concat.apply([], Object.keys(g).sort().map(function (n) { return g[n].map(function (r) { return [n, r.item.name, r.item.current_stock, r.qty, R.unitFor(r.item), r.why.join('; ')]; }); })))); };
+    $('#bp', box).onclick = function () { var g = group(); printHtml('Buy list', buyDoc(Object.keys(g).sort().map(function (n) { return [n, g[n]]; })), 'A4'); };
+    $('#bc', box).onclick = function () { var g = group(); csv('buy-list-' + today() + '.csv', [['Supplier'].concat(BUY_HEAD)].concat([].concat.apply([], Object.keys(g).sort().map(function (n) { return rowsFor(g[n]).map(function (r) { return [n].concat(r); }); })))); };
   };
 
   /* ---------- Count (stock room adjusts; stations are snapshot logs) ---------- */
@@ -394,7 +418,7 @@
   V.items = async function (box) {
     await R.loadCatalog(true);
     var res = await Promise.all([R.suppliers(), q(sb.from('locations').select('name,type,active').order('name')), q(sb.from('profiles').select('name,role,station,approved,active'))]);
-    var sups = res[0], locs = res[1], people = res[2], st = F.items, sm = supMap();
+    var sups = S.suppliers = res[0], locs = res[1], people = res[2], st = F.items, sm = supMap();
     var supOpts = sups.map(function (s) { return { value: s.id, label: s.name }; });
     var act_ = S.items.filter(function (i) { return i.active; });
     var checks = [
@@ -411,10 +435,11 @@
       '<div class="row" style="padding:3px 0"><span class="grow">Station staff / requesters without a station</span>' + (nost.length ? '<span class="pill Pending">' + esc(nost.join(', ')) + '</span>' : '<span class="pill OK">OK</span>') + '</div></div>' +
       '<details class="card"><summary><b>Add item</b></summary><div class="row" style="margin-top:8px"><input id="an" class="grow" placeholder="Item name"><input id="ac" list="cl" class="grow" placeholder="Category"><select id="au" style="max-width:110px">' + opts(UNITS, '', 'Unit') + '</select></div>' +
       '<div class="row" style="margin-top:8px"><input id="al" list="ll" class="grow" placeholder="Stock room / location (comma separated)"><input id="as" list="sl" class="grow" placeholder="Used by stations (comma separated)"></div>' +
-      '<div class="row" style="margin-top:8px"><select id="ap" class="grow">' + opts(supOpts, '', 'Supplier') + '</select><input id="ab" style="max-width:110px" placeholder="Buy unit"><input id="ak" style="max-width:130px" placeholder="Pack / conversion"></div>' +
+      '<div class="row" style="margin-top:8px"><select id="ap" class="grow sup-sel">' + R.supOptions(sups, '', 'Supplier') + '</select><input id="ab" style="max-width:110px" placeholder="Buy unit"><input id="ak" style="max-width:130px" placeholder="Pack / conversion"></div>' +
       '<div class="row" style="margin-top:8px"><input id="ar" type="number" step="any" placeholder="Reorder at"><input id="ax" type="number" step="any" placeholder="Critical at"><input id="ag" type="number" step="any" placeholder="PAR / target"><input id="ao" type="number" step="any" placeholder="Opening stock"></div>' +
       '<div style="margin-top:10px"><button class="btn" id="aadd">Add item</button></div><datalist id="cl">' + cats().map(function (c) { return '<option value="' + esc(c) + '">'; }).join('') + '</datalist><datalist id="ll">' + locs.filter(function (l) { return l.type === 'Stock Room'; }).map(function (l) { return '<option value="' + esc(l.name) + '">'; }).join('') + '</datalist><datalist id="sl">' + locs.filter(function (l) { return l.type === 'Station'; }).map(function (l) { return '<option value="' + esc(l.name) + '">'; }).join('') + '</datalist></details>' +
-      '<div class="card"><div class="row"><input id="sn" class="grow" placeholder="New supplier name"><button class="btn alt" id="sadd">Add supplier</button></div></div>' +
+      '<details class="card"><summary><b>Suppliers (' + sups.length + ')</b></summary><div class="row" style="margin:8px 0"><input id="sn" class="grow" placeholder="New supplier name"><button class="btn alt" id="sadd">Add supplier</button></div><div class="tbl"><table><thead><tr><th>Supplier</th><th class="num">Items</th><th></th></tr></thead><tbody id="sl2">' +
+        sups.map(function (sp) { var n = S.items.filter(function (i) { return i.supplier_id === sp.id || i.alt_supplier_1_id === sp.id || i.alt_supplier_2_id === sp.id; }).length; return '<tr data-sid="' + sp.id + '"><td><input data-sf value="' + esc(sp.name) + '"></td><td class="num">' + n + '</td><td>' + (n ? '' : '<button class="btn alt sm" data-sdel>Delete</button>') + '</td></tr>'; }).join('') + '</tbody></table></div></details>' +
       fbar([{ t: 's', k: 'q', ph: 'Search items…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'sup', ph: 'All suppliers', o: supOpts },
         { t: 'c', k: 'need', ph: 'All items', o: [{ value: 'nosup', label: 'No supplier' }, { value: 'noreorder', label: 'No reorder point' }, { value: 'nocrit', label: 'No critical level' }, { value: 'nopar', label: 'No PAR' }, { value: 'noloc', label: 'No location' }, { value: 'neg', label: 'Negative stock' }, { value: 'inactive', label: 'Inactive' }] }], st) +
       '<div class="card tbl"><p class="muted" id="icount"></p><table><thead><tr><th>Item</th><th>Supplier</th><th>Buy unit</th><th class="num">Lead d</th><th class="num">Order ×</th><th class="num">Reorder</th><th class="num">Critical</th><th class="num">PAR</th><th>On</th></tr></thead><tbody id="it"></tbody></table></div>';
@@ -424,10 +449,10 @@
       $('#icount', box).textContent = list.length + ' item(s)';
       $('#it', box).innerHTML = list.map(function (i) {
         return '<tr data-id="' + i.id + '"><td><input data-f="name" value="' + esc(i.name) + '" style="min-width:170px"><div class="row" style="margin-top:4px"><input data-f="category" list="cl" value="' + esc(i.category || '') + '" placeholder="Category" style="width:130px"><select data-f="unit" style="width:84px">' + opts(UNITS, i.unit || '', '—') + '</select></div><div class="muted">stock ' + fmt(i.current_stock) + ' · <a href="#" data-more>more…</a></div></td>' +
-          '<td><select data-f="supplier_id" style="min-width:130px">' + opts(supOpts, i.supplier_id || '', '—') + '</select></td><td><input data-f="purchase_unit" value="' + esc(i.purchase_unit || '') + '" style="width:80px"></td>' +
+          '<td><select data-f="supplier_id" class="sup-sel" style="min-width:130px">' + R.supOptions(S.suppliers, i.supplier_id || '', '—') + '</select></td><td><input data-f="purchase_unit" value="' + esc(i.purchase_unit || '') + '" style="width:80px"></td>' +
           numIn(i, 'lead_time_days') + numIn(i, 'order_multiple') + numIn(i, 'reorder_point') + numIn(i, 'critical_level') + numIn(i, 'par_target') + '<td><input type="checkbox" data-f="active"' + (i.active ? ' checked' : '') + '></td></tr>' +
           '<tr class="more hide" data-for="' + i.id + '"><td colspan="9"><div class="row"><label class="grow" style="margin:0">Stock room / location<input data-f="stocked_at" data-arr list="ll" value="' + esc((i.stocked_at || []).join(', ')) + '"></label><label class="grow" style="margin:0">Used by stations<input data-f="used_by" data-arr list="sl" value="' + esc((i.used_by || []).join(', ')) + '"></label></div>' +
-          '<div class="row"><label class="grow" style="margin:0">Alt supplier 1<select data-f="alt_supplier_1_id">' + opts(supOpts, i.alt_supplier_1_id || '', '—') + '</select></label><label class="grow" style="margin:0">Alt supplier 2<select data-f="alt_supplier_2_id">' + opts(supOpts, i.alt_supplier_2_id || '', '—') + '</select></label><label class="grow" style="margin:0">Pack / conversion<input data-f="pack_conversion" value="' + esc(i.pack_conversion || '') + '"></label></div><label>Notes<input data-f="notes" value="' + esc(i.notes || '') + '"></label></td></tr>';
+          '<div class="row"><label class="grow" style="margin:0">Alt supplier 1<select data-f="alt_supplier_1_id" class="sup-sel">' + R.supOptions(S.suppliers, i.alt_supplier_1_id || '', '—') + '</select></label><label class="grow" style="margin:0">Alt supplier 2<select data-f="alt_supplier_2_id" class="sup-sel">' + R.supOptions(S.suppliers, i.alt_supplier_2_id || '', '—') + '</select></label><label class="grow" style="margin:0">Pack / conversion<input data-f="pack_conversion" value="' + esc(i.pack_conversion || '') + '"></label></div><label>Notes<input data-f="notes" value="' + esc(i.notes || '') + '"></label></td></tr>';
       }).join('') || '<tr><td colspan="9" class="muted">No items match.</td></tr>';
     }
     wire(box, st, draw); draw();
@@ -454,6 +479,15 @@
         toast('Item added'); await R.loadCatalog(true); R.show('items');
       });
     };
+    $('#sl2', box).addEventListener('change', function (e) {
+      var inp = e.target.closest('[data-sf]'); if (!inp) return;
+      var nm = inp.value.trim().toUpperCase(); if (!nm) return;
+      sb.from('suppliers').update({ name: nm }).eq('id', inp.closest('tr').dataset.sid).then(function (r) { if (r.error) return toast(r.error.message, true); S.suppliers = null; toast('Saved'); });
+    });
+    $('#sl2', box).addEventListener('click', function (e) {
+      var d = e.target.closest('[data-sdel]'); if (!d || !confirm('Delete this supplier?')) return;
+      act(d, async function () { await q(sb.from('suppliers').delete().eq('id', d.closest('tr').dataset.sid)); S.suppliers = null; toast('Deleted'); R.show('items'); });
+    });
     $('#sadd', box).onclick = function (e) {
       act(e.currentTarget, async function () {
         var name = $('#sn', box).value.trim().toUpperCase(); if (!name) throw new Error('Enter a supplier name');
