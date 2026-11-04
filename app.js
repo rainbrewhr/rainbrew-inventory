@@ -343,8 +343,10 @@
       '<aside class="side" id="side" aria-label="Navigation"><div class="brandrow">' + logo() + '<div class="brandtxt"><b>' + BRAND + '</b><span>' + esc(profile.role) + '</span></div><button class="icon-btn sclose" id="sclose" aria-label="Close menu">' + icon('x') + '</button></div>' +
       '<nav class="tabs" aria-label="Primary">' + pages.map(function (p) { return '<button data-page="' + p.id + '" title="' + esc(p.label) + '">' + icon(p.icon) + '<span>' + esc(p.label) + '</span><em class="badge hide" data-badge="' + p.id + '"></em></button>'; }).join('') + '</nav>' +
       '<div class="userrow"><span class="avatar" aria-hidden="true">' + esc(initials(profile.name)) + '</span><div class="usertxt"><b>' + esc(profile.name) + '</b><span>' + esc(profile.role) + '</span></div><button class="icon-btn" id="so" aria-label="Sign out" title="Sign out">' + icon('logout') + '</button></div></aside>' +
-      '<div class="col"><header class="cmd"><button class="icon-btn menu" id="menu" aria-label="Open menu">' + icon('menu') + '</button><div class="ptitle"><h1 id="ptitle"></h1><p id="psub"></p></div><div class="sp"></div><button class="icon-btn" id="theme"></button></header><div class="subnav" id="subnav" role="tablist"></div><main id="main"></main></div></div>';
+      '<div class="col"><header class="cmd"><button class="icon-btn menu" id="menu" aria-label="Open menu">' + icon('menu') + '</button><div class="ptitle"><h1 id="ptitle"></h1><p id="psub"></p></div><div class="sp"></div><button class="icon-btn" id="theme"></button></header><div class="subnav" id="subnav" role="tablist"></div><main id="main"></main></div>' +
+      (allowed.indexOf('req') >= 0 ? '<div class="fabs" id="fabs"><button class="fab alt" id="fab-buy" aria-label="Request to buy" title="Request to buy">' + icon('buy', 'lg') + '<span>Request to buy</span></button><button class="fab" id="fab-req" aria-label="New stock request" title="New stock request">' + icon('plus', 'lg') + '<span>New request</span></button></div>' : '') + '</div>';
     main = $('#main');
+    if ($('#fabs')) { document.body.classList.add('has-fab'); $('#fab-req').onclick = function () { show('req'); }; $('#fab-buy').onclick = function () { show('buyreq'); }; }
     paintThemeButton();
     $('#so').onclick = async function () { await sb.auth.signOut(); location.reload(); };
     $('#menu').onclick = openDrawer; $('#sclose').onclick = closeDrawer; $('#scrim').onclick = closeDrawer;
@@ -481,6 +483,7 @@
     $('#ptitle').textContent = pg ? pg.label : TABS[tab].label;
     $('#psub').textContent = tabs.length > 1 ? TABS[tab].label : dateFmt.format(new Date());
     document.title = TABS[tab].label + ' · ' + BRAND;
+    if ($('#fabs')) { $('#fab-req').classList.toggle('cur', tab === 'req'); $('#fab-buy').classList.toggle('cur', tab === 'buyreq'); $('#fab-req').setAttribute('aria-current', tab === 'req' ? 'page' : 'false'); $('#fab-buy').setAttribute('aria-current', tab === 'buyreq' ? 'page' : 'false'); }
   }
   async function show(tab, params) {
     var changed = tab !== cur;
