@@ -467,7 +467,7 @@
       var v = f === 'active' ? el.checked : el.hasAttribute('data-arr') ? el.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean) : (el.value === '' ? null : el.type === 'number' ? +el.value : el.value);
       if (f === 'name') v = (v || '').toUpperCase();
       var patch = {}; patch[f] = v;
-      sb.from('items').update(patch).eq('id', id).then(function (r) { if (r.error) return toast(r.error.message, true); toast('Saved'); R.loadCatalog(true); });
+      sb.from('items').update(patch).eq('id', id).then(function (r) { if (r.error) return toast(r.error.message, true); toast('Saved'); R.markDirty(); R.loadCatalog(true); });
     });
     $('#aadd', box).onclick = function (e) {
       act(e.currentTarget, async function () {
