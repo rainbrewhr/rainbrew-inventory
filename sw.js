@@ -1,6 +1,6 @@
 /* Rainbrew service worker: the app shell loads instantly from cache and refreshes in the background.
    Database traffic (supabase.co) is never cached here. */
-const V = 'rb-v1';
+const V = 'rb-v2';
 const SHELL = ['index.html', 'admin.html', 'stockkeeper.html', 'procurement.html', 'request.html', 'style.css', 'app.js', 'config.js', 'vendor/supabase.js', 'icon-192.png', 'favicon-32.png'];
 
 self.addEventListener('install', e => {

@@ -10,7 +10,7 @@
   var REQUESTERS = ['Admin', 'Stock Keeper', 'Station Staff', 'Requester'];
 
   var APPS = {
-    admin: { title: 'Admin', tabs: ['dash', 'release', 'receive', 'buy', 'waste', 'count', 'items', 'users', 'history'] },
+    admin: { title: 'Admin', tabs: ['dash', 'release', 'receive', 'buy', 'req', 'buyreq', 'waste', 'count', 'items', 'places', 'users', 'history'] },
     stockkeeper: { title: 'Stock Keeper', tabs: ['release', 'receive', 'waste', 'count', 'dash', 'history'] },
     procurement: { title: 'Procurement', tabs: ['buy', 'release', 'receive', 'dash', 'history'] },
     request: { title: 'Request', tabs: ['req', 'buyreq', 'mine', 'swaste'] }
@@ -23,6 +23,7 @@
     waste: { label: 'Waste', roles: ['Admin', 'Stock Keeper'], view: function (b) { return vWaste(b, null); } },
     count: { label: 'Count', roles: ['Admin', 'Stock Keeper'], view: vCount },
     items: { label: 'Items', roles: ['Admin'], view: vItems },
+    places: { label: 'Places', roles: ['Admin'], view: vPlaces },
     users: { label: 'Users', roles: ['Admin'], view: vUsers },
     history: { label: 'History', roles: OPS, view: function (b) { return vHistory(b, false); } },
     req: { label: 'Request items', roles: REQUESTERS, view: vRequest },
@@ -449,7 +450,7 @@
       '<div class="card"><input id="iq" type="search" placeholder="Filter items…"></div><div class="card tbl"><table><thead><tr><th>Item</th><th>Supplier</th><th>Buy unit</th><th class="num">Lead d</th><th class="num">Order ×</th><th class="num">Reorder</th><th class="num">Critical</th><th class="num">PAR</th><th>On</th></tr></thead><tbody id="it">' +
       S.items.map(function (i) {
         function n(f) { return '<td class="num"><input type="number" min="0" step="any" data-f="' + f + '" value="' + esc(i[f] == null ? '' : i[f]) + '" style="width:74px"></td>'; }
-        return '<tr data-id="' + i.id + '" data-n="' + esc(i.name.toLowerCase()) + '"><td>' + esc(i.name) + '<div class="muted">' + esc(i.category || '') + ' · ' + esc(i.unit || '') + ' · stock ' + fmt(i.current_stock) + '</div></td>' +
+        return '<tr data-id="' + i.id + '" data-n="' + esc(i.name.toLowerCase()) + '"><td><input data-f="name" value="' + esc(i.name) + '" style="min-width:170px"><div class="row" style="margin-top:4px"><input data-f="category" list="cl" value="' + esc(i.category || '') + '" placeholder="Category" style="width:130px"><input data-f="unit" value="' + esc(i.unit || '') + '" placeholder="Unit" style="width:70px"></div><div class="muted">stock ' + fmt(i.current_stock) + '</div></td>' +
           '<td><select data-f="supplier_id" style="min-width:130px">' + opts(sups.map(function (s) { return { value: s.id, label: s.name }; }), i.supplier_id || '', '—') + '</select></td>' +
           '<td><input data-f="purchase_unit" value="' + esc(i.purchase_unit || '') + '" style="width:80px"></td>' + n('lead_time_days') + n('order_multiple') + n('reorder_point') + n('critical_level') + n('par_target') +
           '<td><input type="checkbox" data-f="active"' + (i.active ? ' checked' : '') + '></td></tr>';
@@ -476,6 +477,25 @@
         var name = $('#sn', box).value.trim().toUpperCase(); if (!name) throw new Error('Enter a supplier name');
         await q(sb.from('suppliers').insert({ name: name }));
         S.suppliers = null; toast('Supplier added'); show('items');
+      });
+    };
+  }
+
+  async function vPlaces(box) {
+    var rows = await q(sb.from('locations').select('id,name,type,active').order('type').order('name'));
+    box.innerHTML = '<div class="card"><h2>Add a place</h2><div class="row"><input id="pn" class="grow" placeholder="Name, e.g. BAR STATION"><select id="pt" style="max-width:160px">' + opts(['Station', 'Stock Room'], 'Station') + '</select><button class="btn" id="padd">Add</button></div><p class="muted">Stations receive stock from requests. Stock rooms are where stock is kept.</p></div>' +
+      '<div class="card tbl"><table><thead><tr><th>Place</th><th>Type</th><th>Active</th></tr></thead><tbody id="pl">' +
+      rows.map(function (r) { return '<tr data-id="' + r.id + '"><td><input data-f="name" value="' + esc(r.name) + '"></td><td>' + esc(r.type) + '</td><td><input type="checkbox" data-f="active"' + (r.active ? ' checked' : '') + '></td></tr>'; }).join('') + '</tbody></table></div>';
+    $('#pl', box).addEventListener('change', function (e) {
+      var tr = e.target.closest('tr'), f = e.target.dataset.f; if (!tr || !f) return;
+      var patch = {}; patch[f] = f === 'active' ? e.target.checked : e.target.value.trim().toUpperCase();
+      sb.from('locations').update(patch).eq('id', tr.dataset.id).then(function (r) { if (r.error) return toast(r.error.message, true); S.stations = null; toast('Saved'); });
+    });
+    $('#padd', box).onclick = function (e) {
+      act(e.currentTarget, async function () {
+        var name = $('#pn', box).value.trim().toUpperCase(); if (!name) throw new Error('Enter a name');
+        await q(sb.from('locations').insert({ name: name, type: $('#pt', box).value }));
+        S.stations = null; toast('Added'); show('places');
       });
     };
   }
@@ -516,6 +536,7 @@
       if (r[0].error) { out.innerHTML = '<div class="card">' + esc(r[0].error.message) + '</div>'; return; }
       html += (r[0].data || []).map(function (x) {
         return '<div class="card"><div class="row"><h2 class="grow">' + esc(x.id) + (x.station ? ' · ' + esc(x.station) : '') + '</h2>' + pill(x.status) + '</div><p class="muted">' + esc(x.requester_name || '') + ' · ' + esc(when(x.created_at)) + (x.notes ? ' · ' + esc(x.notes) : '') + '</p>' +
+          (role() === 'Admin' && ['Pending', 'Rejected'].indexOf(x.status) >= 0 ? '<button class="btn alt sm" data-del="' + esc(x.id) + '" style="margin-bottom:8px">Delete request</button>' : '') +
           '<div class="tbl"><table><tbody>' + (x.request_items || []).map(function (l) { return '<tr><td>' + esc(l.items ? l.items.name : '') + '</td><td class="num">' + fmt(l.fulfilled_qty) + ' / ' + fmt(l.requested_qty) + ' ' + esc(l.unit || '') + '</td><td>' + pill(l.status) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
       }).join('') || '<div class="card muted">No requests found.</div>';
       if (r[1] && r[1].data && r[1].data.length) {
@@ -530,6 +551,10 @@
       }
       out.innerHTML = html;
     }
+    out.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-del]'); if (!b || !confirm('Delete ' + b.dataset.del + '? This cannot be undone.')) return;
+      act(b, async function () { await q(sb.from('requests').delete().eq('id', b.dataset.del)); toast('Deleted'); run(); });
+    });
     $('#hgo', box).onclick = run;
     $('#hq', box).onkeydown = function (e) { if (e.key === 'Enter') run(); };
     await run();
