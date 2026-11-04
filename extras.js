@@ -74,10 +74,10 @@
 
   /* ---------- filter bars ---------- */
   function fbar(defs, st) {
-    return '<div class="card"><div class="row">' + defs.map(function (d) {
-      if (d.t === 's') return '<input class="grow" data-k="' + d.k + '" type="search" placeholder="' + esc(d.ph) + '" value="' + esc(st[d.k] || '') + '">';
-      if (d.t === 'd') return '<label class="grow" style="margin:0">' + esc(d.ph) + '<input type="date" data-k="' + d.k + '" value="' + esc(st[d.k] || '') + '"></label>';
-      return '<select class="grow" data-k="' + d.k + '" style="min-width:130px">' + opts(d.o, st[d.k] || '', d.ph) + '</select>';
+    return '<div class="card fcard"><div class="filters">' + defs.map(function (d) {
+      if (d.t === 's') return '<div class="wide" style="position:relative"><input data-k="' + d.k + '" type="search" placeholder="' + esc(d.ph) + '" value="' + esc(st[d.k] || '') + '" aria-label="' + esc(d.ph) + '"></div>';
+      if (d.t === 'd') return '<label style="margin:0">' + esc(d.ph) + '<input type="date" data-k="' + d.k + '" value="' + esc(st[d.k] || '') + '"></label>';
+      return '<select data-k="' + d.k + '" aria-label="' + esc(d.ph) + '">' + opts(d.o, st[d.k] || '', d.ph) + '</select>';
     }).join('') + '</div></div>';
   }
   function wire(box, st, cb) {
@@ -100,36 +100,39 @@
   V.stock = async function (box) {
     await R.loadCatalog();
     var sups = await R.suppliers(), st = F.stock, sm = supMap();
-    box.innerHTML = '<div class="card"><div class="row"><h2 class="grow">Stock levels</h2><button class="btn alt sm" id="sp">Print</button><button class="btn alt sm" id="sc">CSV</button></div><p class="muted" id="sn"></p></div>' +
-      fbar([{ t: 's', k: 'q', ph: 'Search item…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All locations', o: flat('stocked_at') }, { t: 'c', k: 'stn', ph: 'All stations', o: flat('used_by') },
-        { t: 'c', k: 'sup', ph: 'All suppliers', o: sups.map(function (s) { return { value: s.id, label: s.name }; }) }, { t: 'c', k: 'status', ph: 'Any status', o: ['CRITICAL', 'LOW', 'OK'] }], st) +
-      '<div id="led"></div><div class="card tbl"><table><thead><tr><th>Item</th><th class="hm">Location</th><th class="num">Stock</th><th class="num hm">Reorder</th><th>Status</th></tr></thead><tbody id="sb"></tbody></table></div>';
+    var np = R.takeNav();
+    if (np.status !== undefined) st.status = np.status;
+    if (np.cat !== undefined) { st.cat = np.cat; st.q = ''; }
+    if (np.q) st.q = np.q;
+    var all = S.items.filter(function (i) { return i.active; });
+    var tally = { '': all.length, CRITICAL: 0, LOW: 0, OK: 0 };
+    all.forEach(function (i) { tally[i.status === 'CRITICAL' ? 'CRITICAL' : i.status === 'LOW' ? 'LOW' : 'OK'] += 1; });
+    var CH = [['', 'All', null], ['CRITICAL', 'Critical / out', 'var(--crit)'], ['LOW', 'Low', 'var(--warn)'], ['OK', 'Optimal', 'var(--ok)']];
+    box.innerHTML = '<div class="card-head"><h2 style="font:600 18px var(--display)">Stock levels</h2><span class="sp"></span><button class="btn alt sm" id="sp">' + R.icon('print') + 'Print</button><button class="btn alt sm" id="sc">' + R.icon('receive') + 'CSV</button></div>' +
+      '<div class="chips" id="chips"></div>' +
+      fbar([{ t: 's', k: 'q', ph: 'Search by item name…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All locations', o: flat('stocked_at') }, { t: 'c', k: 'stn', ph: 'All stations', o: flat('used_by') },
+        { t: 'c', k: 'sup', ph: 'All suppliers', o: sups.map(function (s) { return { value: s.id, label: s.name }; }) }], st) +
+      '<div class="card tbl" style="padding:6px 8px"><table><thead><tr><th>Item</th><th class="hm">Location</th><th class="num">Stock</th><th class="num hm">Reorder</th><th>Status</th><th></th></tr></thead><tbody id="sb"></tbody></table></div><p class="muted" id="sn" style="text-align:center"></p>';
     var list = [];
+    function chips() {
+      $('#chips', box).innerHTML = CH.map(function (c) { return '<button class="chip' + ((st.status || '') === c[0] ? ' on' : '') + '" data-ch="' + c[0] + '">' + (c[2] ? '<i style="background:' + c[2] + '"></i>' : '') + c[1] + ' <b>' + tally[c[0]] + '</b></button>'; }).join('');
+    }
     function draw() {
       list = S.items.filter(function (i) { return i.active && hit(i, st); });
       $('#sb', box).innerHTML = list.map(function (i) {
-        return '<tr data-id="' + i.id + '" style="cursor:pointer"><td>' + esc(i.name) + '<div class="muted">' + esc(i.category || '') + '</div></td><td class="hm">' + esc((i.stocked_at || []).join(' / ')) + '</td><td class="num">' + fmt(i.current_stock) + ' ' + esc(i.unit || '') + '</td><td class="num hm">' + fmt(i.reorder_point) + '</td><td>' + pill(i.status) + '</td></tr>';
-      }).join('') || '<tr><td colspan="5" class="muted">No items match.</td></tr>';
-      $('#sn', box).textContent = list.length + ' item(s) · ' + list.filter(function (i) { return i.status === 'CRITICAL'; }).length + ' critical · ' + list.filter(function (i) { return i.status === 'LOW'; }).length + ' low';
+        var tone = i.status === 'CRITICAL' ? 'crit' : i.status === 'LOW' ? 'warn' : 'ok';
+        return '<tr class="click" data-id="' + i.id + '"><td><div class="cell-name"><span class="ico ' + tone + '">' + R.icon('stock') + '</span><span><b>' + esc(i.name) + '</b><span>' + esc(i.category || '') + '</span></span></div></td><td class="hm">' + esc((i.stocked_at || []).join(' / ')) + '</td><td class="num">' + fmt(i.current_stock) + ' <span class="muted">' + esc(i.unit || '') + '</span></td><td class="num hm">' + fmt(i.reorder_point) + '</td><td>' + pill(i.status) + '</td><td style="width:28px;color:var(--line2)">' + R.icon('chevr', 'sm') + '</td></tr>';
+      }).join('') || '<tr><td colspan="6">' + R.ui.empty('search', 'No items match', 'Try a different search or clear a filter.') + '</td></tr>';
+      $('#sn', box).textContent = list.length + ' of ' + all.length + ' items shown';
+      chips();
     }
     wire(box, st, draw); draw();
+    $('#chips', box).onclick = function (e) { var c = e.target.closest('[data-ch]'); if (c) { st.status = c.dataset.ch; draw(); } };
+    $('#sb', box).onclick = function (e) { var tr = e.target.closest('tr[data-id]'); if (tr) R.openItem(tr.dataset.id); };
     $('#sp', box).onclick = function () {
       printHtml('Stock levels', docHead('Stock Levels', list.length + ' item(s)') + table(['Item', 'Category', 'Location', 'Stock', 'Unit', 'Reorder', 'Status'], list.map(function (i) { return [i.name, i.category, (i.stocked_at || []).join(' / '), fmt(i.current_stock), i.unit, fmt(i.reorder_point), i.status]; }), [3, 5]));
     };
     $('#sc', box).onclick = function () { csv('stock-levels-' + today() + '.csv', [['Item', 'Category', 'Location', 'Stock', 'Unit', 'Reorder point', 'Critical level', 'PAR', 'Supplier', 'Status']].concat(list.map(function (i) { return [i.name, i.category, (i.stocked_at || []).join(' / '), i.current_stock, i.unit, i.reorder_point, i.critical_level, i.par_target, sm[i.supplier_id] || '', i.status]; }))); };
-    $('#sb', box).onclick = async function (e) {
-      var tr = e.target.closest('tr[data-id]'); if (!tr || !isOps()) return;
-      var it = S.map.get(tr.dataset.id), led = $('#led', box);
-      led.innerHTML = '<div class="card"><div class="skeleton"></div></div>';
-      try {
-        var mv = await q(sb.from('stock_movements').select('ts,type,signed_qty,reference,station,supplier,user_name').eq('item_id', it.id).order('ts', { ascending: false }).order('id', { ascending: false }).limit(60));
-        var bal = Number(it.current_stock);
-        led.innerHTML = '<div class="card"><div class="row"><h2 class="grow">' + esc(it.name) + ' — history</h2><button class="btn alt sm" id="lx">Close</button></div><div class="tbl"><table><thead><tr><th>When</th><th>Type</th><th class="num">Qty</th><th class="num">Balance</th><th class="hm">Ref</th></tr></thead><tbody>' +
-          mv.map(function (m) { var row = '<tr><td class="muted">' + esc(when(m.ts)) + '</td><td>' + esc(m.type) + (m.station ? ' → ' + esc(m.station) : '') + '</td><td class="num">' + (m.signed_qty > 0 ? '+' : '') + fmt(m.signed_qty) + '</td><td class="num">' + fmt(bal) + '</td><td class="muted hm">' + esc(m.reference || '') + '</td></tr>'; bal -= Number(m.signed_qty); return row; }).join('') + '</tbody></table></div></div>';
-        $('#lx', box).onclick = function () { led.innerHTML = ''; };
-        led.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      } catch (err) { led.innerHTML = '<div class="card">' + esc(err.message) + '</div>'; }
-    };
   };
 
   /* ---------- Release (filters + A6 print) ---------- */
@@ -146,7 +149,7 @@
     function draw() {
       var out = $('#rl', box); out.innerHTML = '';
       var vis = visible();
-      if (!vis.length) { out.innerHTML = '<div class="card muted">No station requests are waiting.</div>'; return; }
+      if (!vis.length) { out.innerHTML = '<div class="card">' + R.ui.empty('done', 'All caught up', 'No station requests are waiting to be released.') + '</div>'; return; }
       vis.forEach(function (r) {
         var c = document.createElement('div'); c.className = 'card';
         var lines = R.openLines(r);
@@ -166,9 +169,10 @@
             toast(r.id + ' released'); await R.loadCatalog(true); R.show('release');
           });
         };
-        $('[data-no]', c).onclick = function (e) {
-          var why = prompt('Reason for rejecting ' + r.id + ' (optional)'); if (why === null) return;
-          act(e.currentTarget, async function () { await rpc('reject_request', { p_req: r.id, p_reason: why }); toast(r.id + ' rejected'); R.show('release'); });
+        $('[data-no]', c).onclick = async function (e) {
+          var btn = e.currentTarget;
+          var why = await R.ui.ask({ title: 'Reject ' + r.id, icon: 'alert', label: 'Reason (optional)', multiline: true, placeholder: 'Why is this being rejected?', ok: 'Reject request' }); if (why === null) return;
+          act(btn, async function () { await rpc('reject_request', { p_req: r.id, p_reason: why }); toast(r.id + ' rejected'); R.show('release'); });
         };
         out.appendChild(c);
       });
@@ -209,14 +213,14 @@
     function draw() {
       var g = group(), names = Object.keys(g).sort(), out = $('#bg', box); out.innerHTML = '';
       $('#bn', box).textContent = shown.length + ' item(s) to buy from ' + names.length + ' supplier(s)';
-      if (!names.length) out.innerHTML = '<div class="card muted">Nothing needs buying. (Set reorder levels per item in Admin → Items.)</div>';
+      if (!names.length) out.innerHTML = '<div class="card">' + R.ui.empty('buy', 'Nothing to buy right now', 'Items appear here when they run low or someone sends a buy request. Reorder levels are set in Manage › Items.') + '</div>';
       names.forEach(function (n) {
         var rs = g[n], c = document.createElement('div'); c.className = 'card';
         c.innerHTML = '<div class="row"><h2 class="grow">' + esc(n) + '</h2><button class="btn alt sm" data-p>Print</button><button class="btn alt sm" data-c>Copy</button><button class="btn sm" data-r>Receive bought</button></div><div class="tbl"><table class="fx"><colgroup>' + BUY_W.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup><thead><tr>' +
           BUY_HEAD.map(function (h, i) { return '<th' + ([1, 2, 5].indexOf(i) >= 0 ? ' class="num"' : '') + '>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-          rs.map(function (r) { var i = r.item; return '<tr><td>' + esc(i.name) + '</td><td class="num">' + fmt(i.current_stock) + '</td><td class="num">' + fmt(r.qty) + '</td><td>' + esc(R.unitFor(i)) + '</td><td>' + esc(alt(i)) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-act="' + i.id + '" value="' + esc(bought(r)) + '"></td></tr>'; }).join('') + '</tbody></table></div>';
+          rs.map(function (r) { var i = r.item; return '<tr class="click" data-item="' + i.id + '"><td>' + esc(i.name) + '</td><td class="num">' + fmt(i.current_stock) + '</td><td class="num">' + fmt(r.qty) + '</td><td>' + esc(R.unitFor(i)) + '</td><td>' + esc(alt(i)) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-act="' + i.id + '" value="' + esc(bought(r)) + '"></td></tr>'; }).join('') + '</tbody></table></div>';
         $('[data-p]', c).onclick = function () { printHtml('Buy list ' + n, buyDoc([[n, rs]]), 'A4'); };
-        $('[data-c]', c).onclick = function () { var t = listText(n, rs); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('Copied'); }, function () { prompt('Copy this list', t); }); };
+        $('[data-c]', c).onclick = function () { var t = listText(n, rs); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('Copied'); }, function () { R.ui.copy(t); }); };
         $('[data-r]', c).onclick = function () {
           var lines = rs.filter(function (r) { return Number(bought(r)) > 0; }).map(function (r) { return { item: r.item, qty: String(bought(r)) }; });
           if (!lines.length) return toast('Type the actual bought quantities first', true);
@@ -230,6 +234,7 @@
         return '<h2>' + esc(p[0]) + '</h2>' + table(BUY_HEAD, rowsFor(p[1]), [1, 2, 5], BUY_W);
       }).join('') + '<p class="sig">Prepared / checked by: ____________________</p>';
     }
+    $('#bg', box).addEventListener('click', function (e) { if (e.target.closest('input,button,select,a')) return; var tr = e.target.closest('tr[data-item]'); if (tr) R.openItem(tr.dataset.item); });
     $('#bg', box).addEventListener('input', function (e) { var el = e.target.closest('[data-act]'); if (el) st.actual[el.dataset.act] = el.value; });
     wire(box, st, draw); draw();
     $('#bp', box).onclick = function () { var g = group(); printHtml('Buy list', buyDoc(Object.keys(g).sort().map(function (n) { return [n, g[n]]; })), 'A4'); };
@@ -263,13 +268,13 @@
         var ls = [].map.call(box.querySelectorAll('#ct input'), function (inp) { return inp.value === '' ? null : { item_id: inp.dataset.id, counted: +inp.value, diff: +inp.value - +inp.dataset.sys }; }).filter(Boolean);
         if (!ls.length) throw new Error('Enter at least one counted quantity');
         if (s) {
-          if (!confirm('Save a snapshot of ' + ls.length + ' item(s) at ' + s + '?')) return;
+          if (!(await R.ui.confirm('Save a snapshot of ' + ls.length + ' item(s) at ' + s + '? This is a log only and does not change stock.', { title: 'Save station snapshot', ok: 'Save snapshot' }))) return;
           var sid = await rpc('next_id', { p_prefix: 'SNP' });
           await q(sb.from('station_stock_snapshots').insert(ls.map(function (l) { return { snapshot_id: sid, location: s, item_id: l.item_id, counted_qty: l.counted, counted_by: S.profile.name }; })));
           toast('Snapshot saved · ' + sid);
         } else {
           var off = ls.filter(function (l) { return l.diff !== 0; }).length;
-          if (!confirm('Post ' + ls.length + ' counted item(s)? ' + off + ' differ from the system.')) return;
+          if (!(await R.ui.confirm('Post ' + ls.length + ' counted item(s)? ' + off + ' differ from the system and will be adjusted.', { title: 'Post stock count', ok: 'Post count' }))) return;
           var id = await rpc('record_count', { p_lines: ls.map(function (l) { return { item_id: l.item_id, counted: l.counted }; }) });
           toast('Count posted · ' + id);
         }
@@ -314,7 +319,7 @@
         return '<div class="card"><div class="row"><h2 class="grow">' + esc(x.id) + (x.station ? ' · ' + esc(x.station) : '') + '</h2>' + pill(x.status) + '<button class="btn alt sm" data-pr="' + esc(x.id) + '">Print A6</button>' + (R.role() === 'Admin' && ['Pending', 'Rejected'].indexOf(x.status) >= 0 ? '<button class="btn alt sm" data-del="' + esc(x.id) + '">Delete</button>' : '') + '</div>' +
           '<p class="muted">' + esc(x.requester_name || '') + ' · ' + esc(when(x.created_at)) + (x.notes ? ' · ' + esc(x.notes) : '') + '</p><div class="tbl"><table><tbody>' +
           (x.request_items || []).map(function (l) { return '<tr><td>' + esc(l.items ? l.items.name : '') + '</td><td class="num">' + fmt(l.fulfilled_qty) + ' / ' + fmt(l.requested_qty) + ' ' + esc(l.unit || '') + '</td><td>' + pill(l.status) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
-      }).join('') || '<div class="card muted">No requests found.</div>';
+      }).join('') || '<div class="card">' + R.ui.empty('search', 'No requests found', 'Try a different ID, status or date range.') + '</div>';
       if (last.mv.length) {
         out.insertAdjacentHTML('beforeend', '<div class="card"><h2>Stock movements (' + last.mv.length + ')</h2><div class="tbl"><table><tbody>' + last.mv.map(function (m) {
           return '<tr><td class="muted">' + esc(when(m.ts)) + '</td><td>' + esc(m.type) + '</td><td>' + esc(m.items ? m.items.name : '') + '</td><td class="num">' + (m.signed_qty > 0 ? '+' : '') + fmt(m.signed_qty) + '</td><td class="muted hm">' + esc(m.reference || '') + '</td></tr>';
@@ -326,7 +331,7 @@
     out.addEventListener('click', function (e) {
       var p = e.target.closest('[data-pr]'), d = e.target.closest('[data-del]');
       if (p) printSlips(last.reqs.filter(function (x) { return x.id === p.dataset.pr; }), p.dataset.pr);
-      if (d && confirm('Delete ' + d.dataset.del + '? This cannot be undone.')) act(d, async function () { await q(sb.from('requests').delete().eq('id', d.dataset.del)); toast('Deleted'); run(); });
+      if (d) R.ui.confirm('Delete ' + d.dataset.del + '? This cannot be undone.', { title: 'Delete request', danger: true, ok: 'Delete' }).then(function (ok) { if (ok) act(d, async function () { await q(sb.from('requests').delete().eq('id', d.dataset.del)); toast('Deleted'); run(); }); });
     });
     $('#hp', box).onclick = function () { printSlips(last.reqs, 'Request slips'); };
     $('#hc', box).onclick = function () {
@@ -419,6 +424,7 @@
     await R.loadCatalog(true);
     var res = await Promise.all([R.suppliers(), q(sb.from('locations').select('name,type,active').order('name')), q(sb.from('profiles').select('name,role,station,approved,active'))]);
     var sups = S.suppliers = res[0], locs = res[1], people = res[2], st = F.items, sm = supMap();
+    var np = R.takeNav(); if (np.q) st.q = np.q;
     var supOpts = sups.map(function (s) { return { value: s.id, label: s.name }; });
     var act_ = S.items.filter(function (i) { return i.active; });
     var checks = [
@@ -485,8 +491,8 @@
       sb.from('suppliers').update({ name: nm }).eq('id', inp.closest('tr').dataset.sid).then(function (r) { if (r.error) return toast(r.error.message, true); S.suppliers = null; toast('Saved'); });
     });
     $('#sl2', box).addEventListener('click', function (e) {
-      var d = e.target.closest('[data-sdel]'); if (!d || !confirm('Delete this supplier?')) return;
-      act(d, async function () { await q(sb.from('suppliers').delete().eq('id', d.closest('tr').dataset.sid)); S.suppliers = null; toast('Deleted'); R.show('items'); });
+      var d = e.target.closest('[data-sdel]'); if (!d) return; R.ui.confirm('Delete this supplier?', { title: 'Delete supplier', danger: true, ok: 'Delete' }).then(function (ok) { if (!ok) return;
+      act(d, async function () { await q(sb.from('suppliers').delete().eq('id', d.closest('tr').dataset.sid)); S.suppliers = null; toast('Deleted'); R.show('items'); }); });
     });
     $('#sadd', box).onclick = function (e) {
       act(e.currentTarget, async function () {
