@@ -3,16 +3,16 @@ import { useRef } from 'react';
 import { cn } from '../lib/cn';
 import { useOverlay } from '../hooks/useOverlay';
 
-export interface NavEntry { id: string; label: string; icon: LucideIcon; badge?: string }
+export interface NavEntry { id: string; label: string; icon: LucideIcon; /** Screens that live in the main Rainbrew apps open there. */ href?: string }
 
 export const NAV: NavEntry[] = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard, href: '../admin.html#dash' },
   { id: 'inventory', label: 'Inventory', icon: Boxes },
-  { id: 'transfers', label: 'Transfers', icon: ArrowLeftRight },
-  { id: 'procurement', label: 'Procurement', icon: ShoppingCart },
-  { id: 'counts', label: 'Stock counts', icon: ClipboardCheck },
-  { id: 'reports', label: 'Reports', icon: BarChart3 },
-  { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'transfers', label: 'Transfers', icon: ArrowLeftRight, href: '../admin.html#release' },
+  { id: 'procurement', label: 'Procurement', icon: ShoppingCart, href: '../admin.html#buy' },
+  { id: 'counts', label: 'Stock counts', icon: ClipboardCheck, href: '../admin.html#count' },
+  { id: 'reports', label: 'Reports', icon: BarChart3, href: '../admin.html#reports' },
+  { id: 'settings', label: 'Settings', icon: Settings, href: '../admin.html#users' },
 ];
 
 function Brand({ compact }: { compact?: boolean }) {
@@ -32,12 +32,13 @@ function Brand({ compact }: { compact?: boolean }) {
 function NavList({ active, onSelect, compact }: { active: string; onSelect: (id: string) => void; compact?: boolean }) {
   return (
     <nav aria-label="Primary" className="flex-1 space-y-0.5 overflow-y-auto p-2">
-      {NAV.map(({ id, label, icon: Icon }) => {
+      {NAV.map(({ id, label, icon: Icon, href }) => {
         const current = id === active;
+        const Tag = href ? 'a' : 'button';
         return (
-          <button
+          <Tag
             key={id}
-            onClick={() => onSelect(id)}
+            {...(href ? { href } : { onClick: () => onSelect(id) })}
             aria-current={current ? 'page' : undefined}
             title={compact ? label : undefined}
             className={cn(
@@ -51,7 +52,7 @@ function NavList({ active, onSelect, compact }: { active: string; onSelect: (id:
             <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden />
             {!compact && <span className="truncate">{label}</span>}
             {compact && <span className="sr-only">{label}</span>}
-          </button>
+          </Tag>
         );
       })}
     </nav>

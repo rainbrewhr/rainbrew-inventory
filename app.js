@@ -36,6 +36,42 @@
     swaste: { label: 'Station waste', roles: ['Admin', 'Stock Keeper', 'Station Staff'], view: function (b) { return vWaste(b, 'station'); } }
   };
 
+  /* ---------- theme ---------- */
+  function applyTheme(t) { document.documentElement.dataset.theme = t; }
+  function currentTheme() { return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'; }
+  (function initTheme() {
+    var saved = null;
+    try { saved = localStorage.getItem('rb_theme'); } catch (e) { /* storage unavailable */ }
+    applyTheme(saved === 'dark' || saved === 'light' ? saved : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+  })();
+
+  /* ---------- icons (Lucide paths, inlined so there is nothing extra to load) ---------- */
+  var ICONS = {
+    dash: '<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>',
+    stock: '<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+    release: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/>',
+    receive: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/>',
+    buy: '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/>',
+    req: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M12 18v-6M9 15h6"/>',
+    buyreq: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>',
+    waste: '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
+    count: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 14l2 2 4-4"/>',
+    reports: '<path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/>',
+    items: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><circle cx="7" cy="7" r="1"/>',
+    places: '<path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
+    users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
+    history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+    mine: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/>',
+    menu: '<path d="M3 6h18M3 12h18M3 18h18"/>',
+    x: '<path d="M18 6L6 18M6 6l12 12"/>',
+    logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>'
+  };
+  var TAB_ICON = { dash: 'dash', stock: 'stock', release: 'release', receive: 'receive', buy: 'buy', req: 'req', buyreq: 'buyreq', waste: 'waste', count: 'count', reports: 'reports', items: 'items', places: 'places', users: 'users', history: 'history', mine: 'mine', swaste: 'waste' };
+  function icon(name) { return '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || '') + '</svg>'; }
+  function initials(name) { return String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(function (p) { return p[0].toUpperCase(); }).join('') || '?'; }
+
   var root = document.getElementById('root');
   var S = { user: null, profile: null, items: [], map: new Map(), stations: null, suppliers: null };
   var cur = null, navToken = 0, main = null;
@@ -59,9 +95,11 @@
     try { await fn(); } catch (e) { toast((e && e.message) || String(e), true); }
     finally { if (btn) btn.disabled = false; }
   }
+  var READ_ONLY_RPC = { catalog: 1, next_id: 1 };
   async function rpc(name, args) {
     var r = await sb.rpc(name, args || {});
     if (r.error) throw new Error(r.error.message);
+    if (!READ_ONLY_RPC[name]) S.catDirty = true; // a write happened: the next catalog request must hit the server
     return r.data;
   }
   async function q(promise) {
@@ -70,11 +108,17 @@
     return r.data;
   }
   function setItems(rows) { S.items = rows; S.map = new Map(rows.map(function (r) { return [r.id, r]; })); }
+  var catalogInflight = null;
+  // force=true means "make sure this is current": it still skips the network when the list was fetched a few seconds ago and nothing was written since.
   async function loadCatalog(force) {
-    if (!force && S.items.length) return;
-    var rows = await rpc('catalog');
-    setItems(rows);
-    try { localStorage.setItem('rb_cat_' + S.user.id, JSON.stringify(rows)); } catch (e) { /* storage unavailable */ }
+    var fresh = S.items.length && S.catAt && Date.now() - S.catAt < 15000 && !S.catDirty;
+    if (S.items.length && (!force || fresh)) return;
+    if (catalogInflight) return catalogInflight;
+    catalogInflight = rpc('catalog').then(function (rows) {
+      setItems(rows); S.catAt = Date.now(); S.catDirty = false;
+      try { localStorage.setItem('rb_cat_' + S.user.id, JSON.stringify(rows)); } catch (e) { /* storage unavailable */ }
+    }).finally(function () { catalogInflight = null; });
+    return catalogInflight;
   }
   async function stations() {
     if (!S.stations) {
@@ -250,14 +294,56 @@
     };
   }
 
+  function closeDrawer() {
+    var side = $('#side'), scrim = $('#scrim');
+    if (side) side.classList.remove('open');
+    if (scrim) scrim.classList.remove('open');
+  }
+  function openDrawer() {
+    $('#side').classList.add('open'); $('#scrim').classList.add('open');
+    var first = $('#side nav.tabs button.on') || $('#side nav.tabs button'); if (first) first.focus();
+  }
+  function paintThemeButton() { var b = $('#theme'); if (b) { b.innerHTML = icon(currentTheme() === 'dark' ? 'sun' : 'moon'); b.setAttribute('aria-label', currentTheme() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'); } }
+
   function shell(profile) {
     var allowed = APPS[APP].tabs.filter(function (t) { return TABS[t].roles.indexOf(profile.role) >= 0; });
-    root.innerHTML = '<header class="top">' + logo() + '<h1>' + BRAND + '<small>' + esc(APPS[APP].title) + '</small></h1><div class="who">' + esc(profile.name) + '<br>' + esc(profile.role) + '</div><button id="so">Sign out</button></header>' +
-      '<nav class="tabs">' + allowed.map(function (t) { return '<button data-t="' + t + '">' + esc(TABS[t].label) + '</button>'; }).join('') + '</nav><main id="main"></main>';
+    root.innerHTML = '<div class="shell"><div class="scrim" id="scrim"></div>' +
+      '<aside class="side" id="side" aria-label="Navigation"><div class="brandrow">' + logo() + '<div class="brandtxt"><b>' + BRAND + '</b><span>' + esc(APPS[APP].title) + '</span></div><button class="icon-btn sclose" id="sclose" aria-label="Close menu">' + icon('x') + '</button></div>' +
+      '<nav class="tabs" aria-label="Primary">' + allowed.map(function (t) { return '<button data-t="' + t + '" title="' + esc(TABS[t].label) + '">' + icon(TAB_ICON[t] || 'dash') + '<span>' + esc(TABS[t].label) + '</span></button>'; }).join('') + '</nav>' +
+      '<div class="userrow"><span class="avatar" aria-hidden="true">' + esc(initials(profile.name)) + '</span><div class="usertxt"><b>' + esc(profile.name) + '</b><span>' + esc(profile.role) + '</span></div><button class="icon-btn" id="so" aria-label="Sign out" title="Sign out">' + icon('logout') + '</button></div></aside>' +
+      '<div class="col"><header class="cmd"><button class="icon-btn menu" id="menu" aria-label="Open menu">' + icon('menu') + '</button><div class="ptitle"><h1 id="ptitle"></h1><p>' + BRAND + ' · ' + esc(APPS[APP].title) + '</p></div><div class="sp"></div><button class="icon-btn" id="theme"></button></header><main id="main"></main></div></div>';
     main = $('#main');
+    paintThemeButton();
     $('#so').onclick = async function () { await sb.auth.signOut(); location.reload(); };
+    $('#menu').onclick = openDrawer; $('#sclose').onclick = closeDrawer; $('#scrim').onclick = closeDrawer;
+    $('#theme').onclick = function () {
+      var t = currentTheme() === 'dark' ? 'light' : 'dark'; applyTheme(t);
+      try { localStorage.setItem('rb_theme', t); } catch (e) { /* ignore */ }
+      paintThemeButton();
+    };
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDrawer(); });
     root.querySelectorAll('nav.tabs button').forEach(function (b) { b.onclick = function () { show(b.dataset.t); }; });
+    // Phones: turn every table into a stack of labelled cards; keeps working when a view redraws its rows.
+    var pending = false;
+    new MutationObserver(function () {
+      if (pending) return; pending = true;
+      requestAnimationFrame(function () { pending = false; stackTables(main); });
+    }).observe(main, { childList: true, subtree: true });
+    window.addEventListener('hashchange', function () {
+      var h = location.hash.slice(1);
+      if (h && h !== cur && TABS[h] && allowed.indexOf(h) >= 0) show(h);
+    });
     return allowed;
+  }
+
+  function stackTables(scope) {
+    scope.querySelectorAll('table').forEach(function (t) {
+      var heads = [].map.call(t.querySelectorAll('thead th'), function (th) { return th.textContent.trim(); });
+      t.classList.add('stack');
+      t.querySelectorAll('tbody tr').forEach(function (tr) {
+        [].forEach.call(tr.children, function (td, i) { if (td.tagName === 'TD' && td.dataset.label === undefined) td.dataset.label = heads[i] || ''; });
+      });
+    });
   }
 
   function simpleCard(title, html) {
@@ -308,7 +394,8 @@
     }
     var cached = null;
     try { cached = JSON.parse(localStorage.getItem('rb_cat_' + S.user.id) || 'null'); } catch (e) { /* ignore */ }
-    var tab = allowed[0];
+    var wanted = location.hash.slice(1);
+    var tab = allowed.indexOf(wanted) >= 0 ? wanted : allowed[0];
     if (cached && cached.length) {
       setItems(cached);
       show(tab);
@@ -318,15 +405,23 @@
     }
   }
 
+  var SKELETON = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
   async function show(tab) {
     cur = tab;
     var t = ++navToken;
+    // Respond to the tap straight away: highlight the tab, set the title, close the phone menu and show a loading state.
     root.querySelectorAll('nav.tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.t === tab); });
+    var title = $('#ptitle'); if (title) title.textContent = TABS[tab].label;
+    document.title = TABS[tab].label + ' · ' + BRAND;
+    try { if (location.hash.slice(1) !== tab) history.replaceState(null, '', '#' + tab); } catch (e) { /* ignore */ }
+    closeDrawer();
+    main.setAttribute('aria-busy', 'true');
+    main.innerHTML = SKELETON;
+    window.scrollTo(0, 0);
     var box = document.createElement('div');
-    if (!main.firstChild) main.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
     try { await TABS[tab].view(box); }
     catch (e) { box.innerHTML = '<div class="card"><h2>Something went wrong</h2><p class="muted">' + esc(e.message || e) + '</p><button class="btn alt" onclick="location.reload()">Reload</button></div>'; }
-    if (t === navToken) main.replaceChildren(box);
+    if (t === navToken) { main.replaceChildren(box); main.removeAttribute('aria-busy'); }
   }
 
   /* ---------- views ---------- */
@@ -501,7 +596,7 @@
   /* ---------- hooks for extras.js ---------- */
   window.RB = {
     S: S, sb: sb, OPS: OPS, TABS: TABS, views: {}, esc: esc, fmt: fmt, when: when, $: $, role: role, toast: toast, act: act, rpc: rpc, q: q,
-    opts: opts, pill: pill, lineBuilder: lineBuilder, loadCatalog: loadCatalog, stations: stations, suppliers: suppliers, show: show,
+    opts: opts, pill: pill, markDirty: function () { S.catDirty = true; }, lineBuilder: lineBuilder, loadCatalog: loadCatalog, stations: stations, suppliers: suppliers, show: show,
     requestSelect: requestSelect, supOptions: supOptions, UNITS: UNITS, prefill: null, openLines: openLines, unitFor: unitFor, suggested: suggested, current: function () { return cur; }
   };
 
