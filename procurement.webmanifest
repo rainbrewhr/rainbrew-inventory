@@ -1,8 +1,8 @@
 {
   "id": "./procurement.html",
-  "name": "Rainbrew Procurement",
-  "short_name": "RB Procure",
-  "description": "Rainbrew Inventory - Procurement",
+  "name": "Rainbrew Inventory System",
+  "short_name": "Rainbrew Inventory",
+  "description": "Rainbrew Inventory System",
   "start_url": "procurement.html",
   "scope": "./",
   "display": "standalone",

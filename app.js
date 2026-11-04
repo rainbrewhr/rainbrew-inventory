@@ -5,6 +5,8 @@
   var CFG = window.RAINBREW, APP = window.RB_APP;
   var sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
 
+  var BRAND = 'Rainbrew Inventory System';
+  var UNITS = ['bottle', 'box', 'jar', 'g', 'kg', 'pack', 'pcs', 'sack', 'bag', 'gallon', 'roll', 'can'];
   var OPS = ['Admin', 'Stock Keeper', 'Procurement Officer'];
   var ROLES = ['Admin', 'Stock Keeper', 'Procurement Officer', 'Station Staff', 'Requester', 'Viewer'];
   var REQUESTERS = ['Admin', 'Stock Keeper', 'Station Staff', 'Requester'];
@@ -94,6 +96,60 @@
   function pill(s) { return '<span class="pill ' + esc(s) + '">' + esc(s) + '</span>'; }
   function node(html) { var d = document.createElement('div'); d.innerHTML = html; return d; }
 
+  /* ---------- supplier dropdowns with "add new supplier" ---------- */
+  function canAddSupplier() { return role() === 'Admin' || role() === 'Procurement Officer'; }
+  function supOptions(list, sel, blank) {
+    return opts(list.map(function (s) { return { value: s.id, label: s.name }; }), sel, blank) + (canAddSupplier() ? '<option value="__new__">➕ Add new supplier…</option>' : '');
+  }
+  document.addEventListener('focusin', function (e) { if (e.target.classList && e.target.classList.contains('sup-sel')) e.target.dataset.prev = e.target.value; });
+  document.addEventListener('change', async function (e) {
+    var el = e.target;
+    if (!el.classList || !el.classList.contains('sup-sel') || el.value !== '__new__') return;
+    e.stopPropagation();
+    var name = (prompt('New supplier name') || '').trim().toUpperCase();
+    if (!name) { el.value = el.dataset.prev || ''; return; }
+    try {
+      var row = (await q(sb.from('suppliers').insert({ name: name }).select('id,name'))) [0];
+      if (S.suppliers) { S.suppliers.push(row); S.suppliers.sort(function (a, b) { return a.name < b.name ? -1 : 1; }); }
+      document.querySelectorAll('select.sup-sel').forEach(function (sel) {
+        var opt = new Option(row.name, row.id), end = sel.querySelector('option[value="__new__"]');
+        sel.insertBefore(opt, end);
+      });
+      el.value = row.id;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      toast('Supplier added');
+    } catch (err) { el.value = el.dataset.prev || ''; toast(err.message, true); }
+  }, true);
+
+  /* ---------- add a product that is not listed yet ---------- */
+  async function newProduct(name) {
+    var ops = OPS.indexOf(role()) >= 0, sups = ops ? await suppliers() : [];
+    var cats = Array.from(new Set(S.items.map(function (i) { return i.category; }).filter(Boolean))).sort();
+    return new Promise(function (resolve) {
+      var m = document.createElement('div'); m.className = 'modal';
+      m.innerHTML = '<div class="card sheet"><h2>New product</h2><p class="muted">This product is not in the list yet. Adding it lets you use it right away; an admin can complete its details later.</p>' +
+        '<label>Product name</label><input id="np-n" value="' + esc(name) + '">' +
+        '<label>Category</label><input id="np-c" list="np-cl" placeholder="e.g. PACKAGING"><datalist id="np-cl">' + cats.map(function (c) { return '<option value="' + esc(c) + '">'; }).join('') + '</datalist>' +
+        '<label>Unit</label><select id="np-u">' + opts(UNITS, 'pack', 'Choose…') + '</select>' +
+        (ops ? '<label>Supplier</label><select id="np-s" class="sup-sel">' + supOptions(sups, '', '—') + '</select>' : '') +
+        '<div class="row" style="margin-top:12px"><button class="btn" id="np-ok">Add product</button><button class="btn alt" id="np-no">Cancel</button></div></div>';
+      document.body.appendChild(m);
+      function close(v) { m.remove(); resolve(v); }
+      $('#np-no', m).onclick = function () { close(null); };
+      $('#np-ok', m).onclick = function (e) {
+        act(e.currentTarget, async function () {
+          var nm = $('#np-n', m).value.trim(); if (!nm) throw new Error('Enter the product name');
+          var sup = $('#np-s', m);
+          var id = await rpc('add_item', { p: { name: nm, category: $('#np-c', m).value.trim(), unit: $('#np-u', m).value, supplier_id: sup ? sup.value : '' }, p_opening: null });
+          await loadCatalog(true);
+          toast(nm.toUpperCase() + ' added');
+          close(S.map.get(id));
+        });
+      };
+      $('#np-n', m).focus();
+    });
+  }
+
   /* ---------- item search + quantity lines ---------- */
   function lineBuilder(box, o) {
     o = o || {};
@@ -127,10 +183,18 @@
       var res = S.items.filter(function (i) { return i.active && !have.has(i.id) && i.name.toLowerCase().indexOf(t) >= 0; }).slice(0, 8);
       sg.innerHTML = res.map(function (i) {
         return '<button type="button" data-id="' + i.id + '"><span>' + esc(i.name) + '<span class="muted"> ' + esc((i.stocked_at || []).join(' / ')) + '</span></span><span class="muted">' + esc(i.unit || '') + (o.stock ? ' · ' + fmt(i.current_stock) + ' in stock' : '') + '</span></button>';
-      }).join('') || '<div class="muted" style="padding:9px">No match</div>';
+      }).join('') + (o.noNew || t.length < 2 ? (res.length ? '' : '<div class="muted" style="padding:9px">No match</div>') :
+        '<button type="button" data-new="1"><span><b>➕ Add “' + esc(qi.value.trim()) + '” as a new product</b>' + (res.length ? '' : '<span class="muted"> — not in the list yet</span>') + '</span></button>');
       sg.classList.remove('hide');
     });
-    sg.addEventListener('click', function (e) {
+    sg.addEventListener('click', async function (e) {
+      var nb = e.target.closest('button[data-new]');
+      if (nb) {
+        var typed = qi.value.trim(); sg.classList.add('hide');
+        var made = await newProduct(typed);
+        if (made) { lines.push({ item: made, qty: '' }); qi.value = ''; draw(); var lastq = tb.querySelector('tr:last-child input[data-f=qty]'); if (lastq) lastq.focus(); }
+        return;
+      }
       var b = e.target.closest('button[data-id]'); if (!b) return;
       lines.push({ item: S.map.get(b.dataset.id), qty: '' });
       qi.value = ''; sg.classList.add('hide'); draw();
@@ -149,7 +213,7 @@
 
   function authView(msg) {
     var mode = 'in';
-    root.innerHTML = '<div class="auth">' + logo() + '<h1>Rainbrew ' + esc(APPS[APP].title) + '</h1><div class="card">' +
+    root.innerHTML = '<div class="auth">' + logo() + '<h1>' + BRAND + '<small>' + esc(APPS[APP].title) + '</small></h1><div class="card">' +
       '<div class="seg"><button data-m="in" class="on">Sign in</button><button data-m="up">Create account</button></div>' +
       '<form id="af"><div id="nm" class="hide"><label>Your name</label><input id="an" autocomplete="name"></div>' +
       '<label>Email</label><input id="ae" type="email" required autocomplete="email">' +
@@ -188,7 +252,7 @@
 
   function shell(profile) {
     var allowed = APPS[APP].tabs.filter(function (t) { return TABS[t].roles.indexOf(profile.role) >= 0; });
-    root.innerHTML = '<header class="top">' + logo() + '<h1>Rainbrew ' + esc(APPS[APP].title) + '</h1><div class="who">' + esc(profile.name) + '<br>' + esc(profile.role) + '</div><button id="so">Sign out</button></header>' +
+    root.innerHTML = '<header class="top">' + logo() + '<h1>' + BRAND + '<small>' + esc(APPS[APP].title) + '</small></h1><div class="who">' + esc(profile.name) + '<br>' + esc(profile.role) + '</div><button id="so">Sign out</button></header>' +
       '<nav class="tabs">' + allowed.map(function (t) { return '<button data-t="' + t + '">' + esc(TABS[t].label) + '</button>'; }).join('') + '</nav><main id="main"></main>';
     main = $('#main');
     $('#so').onclick = async function () { await sb.auth.signOut(); location.reload(); };
@@ -197,7 +261,7 @@
   }
 
   function simpleCard(title, html) {
-    root.innerHTML = '<div class="auth">' + logo() + '<h1>Rainbrew ' + esc(APPS[APP].title) + '</h1><div class="card"><h2>' + esc(title) + '</h2>' + html + '</div></div>';
+    root.innerHTML = '<div class="auth">' + logo() + '<h1>' + BRAND + '<small>' + esc(APPS[APP].title) + '</small></h1><div class="card"><h2>' + esc(title) + '</h2>' + html + '</div></div>';
   }
 
   function pendingView(p) {
@@ -312,6 +376,10 @@
       '<label>Against an urgent buy request (optional)</label><select id="rp">' + opts(purs.map(function (p) { return { value: p.id, label: p.id + ' · ' + openLines(p).length + ' item(s) · ' + (p.requester_name || '') }; }), '', 'Not against a request') + '</select>' +
       '<label>Items received</label><div id="lb"></div><label>Note (e.g. invoice no.)</label><input id="rn"><div style="margin-top:12px"><button class="btn" id="rgo">Receive into stock</button></div></div>';
     var lb = lineBuilder($('#lb', box), { stock: true });
+    if (window.RB.prefill) {
+      var pf = window.RB.prefill; window.RB.prefill = null;
+      $('#rs', box).value = pf.supplier || ''; lb.set(pf.lines);
+    }
     $('#rp', box).onchange = function () {
       var p = purs.find(function (x) { return x.id === this.value; }, this);
       if (!p) return lb.clear();
@@ -341,7 +409,7 @@
       (fixedKind ? '' : '<label>Type</label><select id="wk"><option value="stockroom">Stock room waste (deducts stock)</option><option value="station">Station waste (log only)</option></select>') +
       '<div id="wst"' + (fixedKind ? '' : ' class="hide"') + '>' + (staff ? '<p class="muted">Station: ' + esc(S.profile.station || '') + '</p>' : '<label>Station</label><select id="ws">' + opts(sts, S.profile.station || '', 'Choose…') + '</select>') + '</div>' +
       '<label>Items wasted</label><div id="lb"></div><label>Note</label><input id="wn"><div style="margin-top:12px"><button class="btn" id="wgo">Record waste</button></div></div>';
-    var lb = lineBuilder($('#lb', box), { stock: !fixedKind, reason: true });
+    var lb = lineBuilder($('#lb', box), { stock: !fixedKind, reason: true, noNew: true });
     var wk = $('#wk', box);
     if (wk) wk.onchange = function () { $('#wst', box).classList.toggle('hide', wk.value !== 'station'); };
     $('#wgo', box).onclick = function (e) {
@@ -434,7 +502,7 @@
   window.RB = {
     S: S, sb: sb, OPS: OPS, TABS: TABS, views: {}, esc: esc, fmt: fmt, when: when, $: $, role: role, toast: toast, act: act, rpc: rpc, q: q,
     opts: opts, pill: pill, lineBuilder: lineBuilder, loadCatalog: loadCatalog, stations: stations, suppliers: suppliers, show: show,
-    requestSelect: requestSelect, openLines: openLines, unitFor: unitFor, suggested: suggested, current: function () { return cur; }
+    requestSelect: requestSelect, supOptions: supOptions, UNITS: UNITS, prefill: null, openLines: openLines, unitFor: unitFor, suggested: suggested, current: function () { return cur; }
   };
 
   /* ---------- start ---------- */

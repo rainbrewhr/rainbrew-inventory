@@ -1,4 +1,4 @@
-# Rainbrew Inventory
+# Rainbrew Inventory System
 
 Four mobile-friendly apps on one Supabase database. Static files, no build step: edit, commit, and GitHub Pages serves them.
 

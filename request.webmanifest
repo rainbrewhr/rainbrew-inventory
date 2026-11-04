@@ -1,8 +1,8 @@
 {
   "id": "./request.html",
-  "name": "Rainbrew Request",
-  "short_name": "RB Request",
-  "description": "Rainbrew Inventory - Request",
+  "name": "Rainbrew Inventory System",
+  "short_name": "Rainbrew Inventory",
+  "description": "Rainbrew Inventory System",
   "start_url": "request.html",
   "scope": "./",
   "display": "standalone",
