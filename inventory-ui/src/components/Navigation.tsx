@@ -6,13 +6,13 @@ import { useOverlay } from '../hooks/useOverlay';
 export interface NavEntry { id: string; label: string; icon: LucideIcon; /** Screens that live in the main Rainbrew apps open there. */ href?: string }
 
 export const NAV: NavEntry[] = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard, href: '../admin.html#dash' },
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard, href: '../index.html#dash' },
   { id: 'inventory', label: 'Inventory', icon: Boxes },
-  { id: 'transfers', label: 'Transfers', icon: ArrowLeftRight, href: '../admin.html#release' },
-  { id: 'procurement', label: 'Procurement', icon: ShoppingCart, href: '../admin.html#buy' },
-  { id: 'counts', label: 'Stock counts', icon: ClipboardCheck, href: '../admin.html#count' },
-  { id: 'reports', label: 'Reports', icon: BarChart3, href: '../admin.html#reports' },
-  { id: 'settings', label: 'Settings', icon: Settings, href: '../admin.html#users' },
+  { id: 'transfers', label: 'Transfers', icon: ArrowLeftRight, href: '../index.html#release' },
+  { id: 'procurement', label: 'Procurement', icon: ShoppingCart, href: '../index.html#buy' },
+  { id: 'counts', label: 'Stock counts', icon: ClipboardCheck, href: '../index.html#count' },
+  { id: 'reports', label: 'Reports', icon: BarChart3, href: '../index.html#reports' },
+  { id: 'settings', label: 'Settings', icon: Settings, href: '../index.html#users' },
 ];
 
 function Brand({ compact }: { compact?: boolean }) {

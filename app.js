@@ -12,6 +12,7 @@
   var REQUESTERS = ['Admin', 'Stock Keeper', 'Station Staff', 'Requester'];
 
   var APPS = {
+    all: { title: '', tabs: ['dash', 'stock', 'release', 'receive', 'buy', 'req', 'buyreq', 'mine', 'waste', 'swaste', 'count', 'reports', 'items', 'places', 'users', 'history'] },
     admin: { title: 'Admin', tabs: ['dash', 'stock', 'release', 'receive', 'buy', 'req', 'buyreq', 'waste', 'count', 'reports', 'items', 'places', 'users', 'history'] },
     stockkeeper: { title: 'Stock Keeper', tabs: ['release', 'receive', 'waste', 'count', 'stock', 'dash', 'reports', 'history'] },
     procurement: { title: 'Procurement', tabs: ['buy', 'release', 'receive', 'stock', 'dash', 'reports', 'history'] },
@@ -72,6 +73,7 @@
   function icon(name) { return '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || '') + '</svg>'; }
   function initials(name) { return String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(function (p) { return p[0].toUpperCase(); }).join('') || '?'; }
 
+  var LANDING = { 'Admin': 'dash', 'Stock Keeper': 'release', 'Procurement Officer': 'buy', 'Station Staff': 'req', 'Requester': 'req', 'Viewer': 'dash' };
   var root = document.getElementById('root');
   var S = { user: null, profile: null, items: [], map: new Map(), stations: null, suppliers: null };
   var cur = null, navToken = 0, main = null;
@@ -260,6 +262,7 @@
     root.innerHTML = '<div class="auth">' + logo() + '<h1>' + BRAND + '<small>' + esc(APPS[APP].title) + '</small></h1><div class="card">' +
       '<div class="seg"><button data-m="in" class="on">Sign in</button><button data-m="up">Create account</button></div>' +
       '<form id="af"><div id="nm" class="hide"><label>Your name</label><input id="an" autocomplete="name"></div>' +
+      (APP === 'all' ? '<div id="rl" class="hide"><label>What do you do?</label><select id="ar"><option value="request">Request items for my station</option><option value="stockkeeper">Stock keeper</option><option value="procurement">Procurement</option><option value="admin">Admin / first-time setup</option></select></div>' : '') +
       '<label>Email</label><input id="ae" type="email" required autocomplete="email">' +
       '<label>Password</label><input id="ap" type="password" required minlength="8" autocomplete="current-password">' +
       '<p id="am" class="muted">' + esc(msg || '') + '</p><button class="btn" style="width:100%" id="as">Sign in</button></form>' +
@@ -269,10 +272,14 @@
       mode = m;
       seg.forEach(function (b) { b.classList.toggle('on', b.dataset.m === m); });
       $('#nm').classList.toggle('hide', m === 'in');
+      if ($('#rl')) $('#rl').classList.toggle('hide', m === 'in');
       $('#as').textContent = m === 'in' ? 'Sign in' : 'Create account';
       $('#ap').autocomplete = m === 'in' ? 'current-password' : 'new-password';
-      $('#ah').textContent = m === 'up' ? (APP === 'request' ? 'You can start sending requests right after you sign in.' : 'An admin must approve new accounts before they can use this app.') : '';
+      showHint();
     }
+    function chosenApp() { return APP === 'all' ? ($('#ar') ? $('#ar').value : 'request') : APP; }
+    function showHint() { $('#ah').textContent = mode === 'up' ? (chosenApp() === 'request' ? 'You can start sending requests right after you sign in.' : 'An admin must approve new accounts before they can use this app.') : ''; }
+    if ($('#ar')) $('#ar').onchange = showHint;
     seg.forEach(function (b) { b.onclick = function () { setMode(b.dataset.m); }; });
     $('#af').onsubmit = function (ev) {
       ev.preventDefault();
@@ -285,7 +292,7 @@
         }
         var name = $('#an').value.trim();
         if (!name) throw new Error('Enter your name');
-        var u = await sb.auth.signUp({ email: email, password: pw, options: { data: { name: name, app: APP } } });
+        var u = await sb.auth.signUp({ email: email, password: pw, options: { data: { name: name, app: chosenApp() } } });
         if (u.error) throw new Error(u.error.message);
         if (u.data.session) return boot();
         setMode('in');
@@ -308,10 +315,10 @@
   function shell(profile) {
     var allowed = APPS[APP].tabs.filter(function (t) { return TABS[t].roles.indexOf(profile.role) >= 0; });
     root.innerHTML = '<div class="shell"><div class="scrim" id="scrim"></div>' +
-      '<aside class="side" id="side" aria-label="Navigation"><div class="brandrow">' + logo() + '<div class="brandtxt"><b>' + BRAND + '</b><span>' + esc(APPS[APP].title) + '</span></div><button class="icon-btn sclose" id="sclose" aria-label="Close menu">' + icon('x') + '</button></div>' +
-      '<nav class="tabs" aria-label="Primary">' + allowed.map(function (t) { return '<button data-t="' + t + '" title="' + esc(TABS[t].label) + '">' + icon(TAB_ICON[t] || 'dash') + '<span>' + esc(TABS[t].label) + '</span></button>'; }).join('') + '</nav>' +
+      '<aside class="side" id="side" aria-label="Navigation"><div class="brandrow">' + logo() + '<div class="brandtxt"><b>' + BRAND + '</b><span>' + esc(APP === 'all' ? profile.role : APPS[APP].title) + '</span></div><button class="icon-btn sclose" id="sclose" aria-label="Close menu">' + icon('x') + '</button></div>' +
+      '<nav class="tabs" aria-label="Primary">' + allowed.map(function (t) { return '<button data-t="' + t + '" title="' + esc(TABS[t].label) + '">' + icon(TAB_ICON[t] || 'dash') + '<span>' + esc(TABS[t].label) + '</span></button>'; }).join('') + (OPS.indexOf(profile.role) >= 0 ? '<a class="navlink" href="inventory/">' + icon('stock') + '<span>Executive view</span></a>' : '') + '</nav>' +
       '<div class="userrow"><span class="avatar" aria-hidden="true">' + esc(initials(profile.name)) + '</span><div class="usertxt"><b>' + esc(profile.name) + '</b><span>' + esc(profile.role) + '</span></div><button class="icon-btn" id="so" aria-label="Sign out" title="Sign out">' + icon('logout') + '</button></div></aside>' +
-      '<div class="col"><header class="cmd"><button class="icon-btn menu" id="menu" aria-label="Open menu">' + icon('menu') + '</button><div class="ptitle"><h1 id="ptitle"></h1><p>' + BRAND + ' · ' + esc(APPS[APP].title) + '</p></div><div class="sp"></div><button class="icon-btn" id="theme"></button></header><main id="main"></main></div></div>';
+      '<div class="col"><header class="cmd"><button class="icon-btn menu" id="menu" aria-label="Open menu">' + icon('menu') + '</button><div class="ptitle"><h1 id="ptitle"></h1><p>' + BRAND + (APP === 'all' ? '' : ' · ' + esc(APPS[APP].title)) + '</p></div><div class="sp"></div><button class="icon-btn" id="theme"></button></header><main id="main"></main></div></div>';
     main = $('#main');
     paintThemeButton();
     $('#so').onclick = async function () { await sb.auth.signOut(); location.reload(); };
@@ -351,7 +358,7 @@
   }
 
   function pendingView(p) {
-    var canClaim = APP === 'admin' && p.requested_app === 'admin';
+    var canClaim = p.requested_app === 'admin';
     simpleCard('Waiting for approval',
       '<p>Hi ' + esc(p.name) + '. Your account is created but an admin needs to approve it before you can use this app.</p>' +
       (canClaim ? '<p class="muted">Setting up the system for the first time? If there is no admin yet, you can claim the admin role.</p><button class="btn" id="claim" style="width:100%;margin-bottom:8px">Set me up as the first admin</button>' : '') +
@@ -386,7 +393,7 @@
       return;
     }
     if (!S.profile.approved) return pendingView(S.profile);
-    if (APP === 'request' && !S.profile.station && (S.profile.role === 'Requester' || S.profile.role === 'Station Staff')) return stationPicker();
+    if (!S.profile.station && (S.profile.role === 'Requester' || S.profile.role === 'Station Staff')) return stationPicker();
     var allowed = shell(S.profile);
     if (!allowed.length) {
       main.innerHTML = '<div class="card"><h2>No access</h2><p>Your role (' + esc(S.profile.role) + ') cannot use this app. Try a different one from the home page.</p></div>';
@@ -395,7 +402,7 @@
     var cached = null;
     try { cached = JSON.parse(localStorage.getItem('rb_cat_' + S.user.id) || 'null'); } catch (e) { /* ignore */ }
     var wanted = location.hash.slice(1);
-    var tab = allowed.indexOf(wanted) >= 0 ? wanted : allowed[0];
+    var tab = allowed.indexOf(wanted) >= 0 ? wanted : (allowed.indexOf(LANDING[S.profile.role]) >= 0 ? LANDING[S.profile.role] : allowed[0]);
     if (cached && cached.length) {
       setItems(cached);
       show(tab);
