@@ -12,34 +12,14 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="RB Procure">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<style>
-  html,body{margin:0;height:100%;background:#B4460F;overflow:hidden}
-  #app{position:fixed;left:0;top:env(safe-area-inset-top,0px);width:100%;height:calc(100% - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));border:0;background:#fff}
-  #load{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#fff;color:#B4460F;font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;text-align:center;padding:24px}
-  #load img{width:150px;height:150px}
-  #load a{color:#1F5A6E;font-weight:700}
-  #load.gone{display:none}
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<!-- Rainbrew launcher: shows the Apps Script web app full screen so it can be saved to a phone like an app. -->
-<iframe id="app" title="Rainbrew Procurement" allow="clipboard-write"></iframe>
-<div id="load"><img src="icon-192.png" alt=""><div>Opening Rainbrew Procurement…</div><a id="direct" href="#" style="display:none">Taking too long? Open it directly</a></div>
+<div id="root"></div>
+<noscript>Rainbrew needs JavaScript to run.</noscript>
 <script src="config.js"></script>
-<script>
-  var BASE = (window.RAINBREW && window.RAINBREW.WEB_APP_URL) || '';   // set in config.js
-  var APP = 'procurement';
-  var mobile = window.matchMedia('(max-width: 1024px)').matches || window.matchMedia('(pointer: coarse)').matches;
-  var q = [];
-  if (APP !== 'admin') q.push('app=' + APP);
-  if (mobile) q.push('device=mobile');
-  if (!BASE) { document.querySelector('#load div').textContent = 'Web app address is missing in config.js.'; throw new Error('config'); }
-  var url = BASE + (q.length ? '?' + q.join('&') : '');
-  var frame = document.getElementById('app'), load = document.getElementById('load'), direct = document.getElementById('direct');
-  direct.href = url;
-  frame.addEventListener('load', function () { load.className = 'gone'; });
-  frame.src = url;
-  setTimeout(function () { direct.style.display = 'inline'; }, 10000);
-</script>
+<script src="vendor/supabase.js"></script>
+<script>window.RB_APP = 'procurement';</script>
+<script src="app.js"></script>
 </body>
 </html>
