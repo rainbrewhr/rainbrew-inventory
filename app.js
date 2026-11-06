@@ -392,6 +392,7 @@
       '<div class="col"><header class="cmd"><button class="icon-btn menu" id="menu" aria-label="Open menu">' + icon('menu') + '</button><div class="ptitle"><h1 id="ptitle"></h1><p id="psub"></p></div><div class="sp"></div><button class="icon-btn" id="theme"></button></header><div class="subnav" id="subnav" role="tablist"></div><main id="main"></main></div>' +
       (allowed.indexOf('req') >= 0 ? '<div class="fabs" id="fabs"><button class="fab alt" id="fab-buy" aria-label="Request to buy" title="Request to buy">' + icon('buy', 'lg') + '<span>Request to buy</span></button><button class="fab" id="fab-req" aria-label="New stock request" title="New stock request">' + icon('plus', 'lg') + '<span>New request</span></button></div>' : '') + '</div>';
     main = $('#main');
+    if ($('#fabs')) { var lastY = window.scrollY, away = false; window.addEventListener('scroll', function () { var y = window.scrollY, d = y - lastY; if (Math.abs(d) < 8) return; var want = d > 0 && y > 120; if (want !== away) { away = want; document.body.classList.toggle('fab-away', away); } lastY = y; }, { passive: true }); }
     if ($('#fabs')) { document.body.classList.add('has-fab'); $('#fab-req').onclick = function () { show('req'); }; $('#fab-buy').onclick = function () { show('buyreq'); }; }
     paintThemeButton();
     $('#so').onclick = async function () { await sb.auth.signOut(); location.reload(); };
@@ -536,7 +537,7 @@
     var tabs = pg ? pg.tabs.filter(function (t) { return S.allowed.indexOf(t) >= 0; }) : [];
     $('#subnav').innerHTML = tabs.length > 1 ? tabs.map(function (t) { return '<button role="tab" data-t="' + t + '" class="' + (t === tab ? 'on' : '') + '" aria-selected="' + (t === tab) + '">' + icon(TAB_ICON[t] || 'dash') + esc(TABS[t].label) + '</button>'; }).join('') : '';
     $('#ptitle').textContent = pg ? pg.label : TABS[tab].label;
-    $('#psub').textContent = tabs.length > 1 ? TABS[tab].label : dateFmt.format(new Date());
+    $('#psub').textContent = tabs.length > 1 ? '' : dateFmt.format(new Date());
     document.title = TABS[tab].label + ' · ' + BRAND;
     if ($('#fabs')) { $('#fab-req').classList.toggle('cur', tab === 'req'); $('#fab-buy').classList.toggle('cur', tab === 'buyreq'); $('#fab-req').setAttribute('aria-current', tab === 'req' ? 'page' : 'false'); $('#fab-buy').setAttribute('aria-current', tab === 'buyreq' ? 'page' : 'false'); }
   }
@@ -716,7 +717,7 @@
     var hr = new Date().toLocaleString('en-PH', { timeZone: 'Asia/Manila', hour: 'numeric', hour12: false }) * 1, greet = hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
     var first = String(S.profile.name || '').split(' ')[0];
     var go = function (tab, label, ic, kind) { return TABS[tab].roles.indexOf(role()) >= 0 ? '<button class="btn ' + (kind || 'alt') + '" data-go="' + tab + '">' + icon(ic) + label + '</button>' : ''; };
-    function kpi(ico, tone, n, label, attrs) { return '<button class="card kpi s3" ' + attrs + '><span class="ico ' + tone + '">' + icon(ico, 'lg') + '</span><span><b>' + n + '</b><span class="l">' + label + '</span></span>' + icon('chevr', 'go') + '</button>'; }
+    function kpi(ico, tone, n, label, attrs) { return '<button class="card kpi s3 t-' + (Number(n) > 0 ? tone : 'none') + '" ' + attrs + '><span class="ico ' + tone + '">' + icon(ico, 'lg') + '</span><span><b>' + n + '</b><span class="l">' + label + '</span></span>' + icon('chevr', 'go') + '</button>'; }
     box.innerHTML = '<div class="hello"><div><h2>' + greet + ', <em>' + esc(first) + '</em></h2><p>' + items.length + ' items tracked · ' + (counts.CRITICAL + counts.LOW ? '<b style="color:var(--text)">' + (counts.CRITICAL + counts.LOW) + ' need attention</b>' : 'everything is stocked') + '</p></div><div class="row">' + go('release', 'Release requests', 'release', 'accent') + go('receive', 'Receive delivery', 'receive') + go('count', 'Stock count', 'count') + '</div></div>' +
       '<div class="dash">' +
       kpi('alert', 'crit', counts.CRITICAL, 'Critical or out of stock', 'data-stock="CRITICAL"') + kpi('alert', 'warn', counts.LOW, 'Running low', 'data-stock="LOW"') +
