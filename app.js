@@ -91,7 +91,7 @@
     { id: 'room', label: 'Stock room', icon: 'room', tabs: ['release', 'count', 'waste'] },
     { id: 'buying', label: 'Buying', icon: 'buy', tabs: ['buy', 'receive'] },
     { id: 'requests', label: 'Requests', icon: 'req', tabs: ['req', 'buyreq', 'mine', 'swaste'] },
-    { id: 'records', label: 'Reports', icon: 'reports', tabs: ['reports', 'history'] },
+    { id: 'records', label: 'Records', icon: 'reports', tabs: ['reports', 'history'] },
     { id: 'manage', label: 'Manage', icon: 'items', tabs: ['items', 'places', 'users'] }
   ];
   function pageOf(tab) { return PAGES.filter(function (p) { return p.tabs.indexOf(tab) >= 0; })[0]; }
@@ -102,7 +102,8 @@
 
   /* ---------- helpers ---------- */
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
-  function fmt(n) { return n == null || n === '' ? '' : String(Math.round(Number(n) * 1000) / 1000); }
+  var numFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 });
+  function fmt(n) { return n == null || n === '' ? '' : numFmt.format(Number(n)); }
   var tf = new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   function when(ts) { return ts ? tf.format(new Date(ts)) : ''; }
   function $(s, el) { return (el || document).querySelector(s); }
@@ -168,7 +169,7 @@
   /* ---------- supplier dropdowns with "add new supplier" ---------- */
   function canAddSupplier() { return role() === 'Admin' || role() === 'Procurement Officer'; }
   function supOptions(list, sel, blank) {
-    return opts(list.map(function (s) { return { value: s.id, label: s.name }; }), sel, blank) + (canAddSupplier() ? '<option value="__new__">➕ Add new supplier…</option>' : '');
+    return opts(list.map(function (s) { return { value: s.id, label: s.name }; }), sel, blank) + (canAddSupplier() ? '<option value="__new__">+ Add new supplier…</option>' : '');
   }
   document.addEventListener('focusin', function (e) { if (e.target.classList && e.target.classList.contains('sup-sel')) e.target.dataset.prev = e.target.value; });
   document.addEventListener('change', async function (e) {
@@ -233,7 +234,7 @@
           (o.stock ? '<td class="num hm">' + fmt(l.item.current_stock) + '</td>' : '') +
           '<td class="num"><input type="number" inputmode="decimal" min="0" step="any" value="' + esc(l.qty) + '" data-f="qty" style="width:92px"></td>' +
           (o.reason ? '<td><input data-f="reason" value="' + esc(l.reason || '') + '" placeholder="optional"></td>' : '') +
-          '<td><button class="btn alt sm" data-rm type="button">✕</button></td></tr>';
+          '<td><button class="icon-btn" data-rm type="button" aria-label="Remove">' + icon('x') + '</button></td></tr>';
       }).join('');
       empty.classList.toggle('hide', lines.length > 0);
     }
@@ -253,7 +254,7 @@
       sg.innerHTML = res.map(function (i) {
         return '<button type="button" data-id="' + i.id + '"><span>' + esc(i.name) + '<span class="muted"> ' + esc((i.stocked_at || []).join(' / ')) + '</span></span><span class="muted">' + esc(i.unit || '') + (o.stock ? ' · ' + fmt(i.current_stock) + ' in stock' : '') + '</span></button>';
       }).join('') + (o.noNew || t.length < 2 ? (res.length ? '' : '<div class="muted" style="padding:9px">No match</div>') :
-        '<button type="button" data-new="1"><span><b>➕ Add “' + esc(qi.value.trim()) + '” as a new product</b>' + (res.length ? '' : '<span class="muted"> — not in the list yet</span>') + '</span></button>');
+        '<button type="button" data-new="1"><span style="display:flex;align-items:center;gap:8px">' + icon('plus', 'sm') + '<b>Add “' + esc(qi.value.trim()) + '” as a new product</b>' + (res.length ? '' : '<span class="muted"> — not in the list yet</span>') + '</span></button>');
       sg.classList.remove('hide');
     });
     sg.addEventListener('click', async function (e) {
@@ -473,7 +474,14 @@
     }
   }
 
-  var SKELETON = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
+  var SK_ROWS = function (n) { var h = ''; for (var i = 0; i < n; i++) h += '<div class="sk-row"><i class="sk"></i><b class="sk"></b><u class="sk"></u></div>'; return h; };
+  var SKELETONS = {
+    dash: '<div class="sk sk-title"></div><div class="sk sk-sub"></div><div class="sk-kpis"><div class="sk sk-kpi"></div><div class="sk sk-kpi"></div><div class="sk sk-kpi"></div><div class="sk sk-kpi"></div></div><div class="sk-two"><div class="sk sk-card"></div><div class="sk sk-card"></div></div>',
+    table: '<div class="sk sk-filters"></div><div class="sk-rows">' + SK_ROWS(7) + '</div>',
+    form: '<div class="sk sk-form"></div>'
+  };
+  var SK_KIND = { dash: 'dash', req: 'form', buyreq: 'form', waste: 'form', swaste: 'form', receive: 'form', reports: 'form' };
+  function skeletonFor(tab) { return SKELETONS[SK_KIND[tab] || 'table']; }
   var dateFmt = new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', weekday: 'long', month: 'long', day: 'numeric' });
   function paintNav(tab) {
     var pg = pageOf(tab);
@@ -497,13 +505,12 @@
     try { if (location.hash.slice(1) !== tab) history.replaceState(null, '', '#' + tab); } catch (e) { /* ignore */ }
     closeDrawer();
     main.setAttribute('aria-busy', 'true');
-    if (changed) { main.innerHTML = SKELETON; window.scrollTo(0, 0); } else { main.classList.add('loading'); } // refresh: keep what is on screen, dim it, keep the scroll position
+    if (changed) { main.innerHTML = skeletonFor(tab); window.scrollTo(0, 0); } else { main.classList.add('loading'); } // refresh: keep what is on screen, dim it, keep the scroll position
     var box = document.createElement('div');
     try { await TABS[tab].view(box); }
-    catch (e) { box.innerHTML = '<div class="card"><h2>Something went wrong</h2><p class="muted">' + esc(e.message || e) + '</p><button class="btn alt" onclick="location.reload()">' + icon('done') + 'Reload</button></div>'; }
+    catch (e) { box.innerHTML = '<div class="card">' + emptyState('alert', navigator.onLine === false ? 'You are offline' : 'This page could not load', navigator.onLine === false ? 'Reconnect to the internet, then try again. Nothing you did was lost.' : String(e.message || e), '<button class="btn alt" data-retry style="margin-top:14px">Try again</button>') + '</div>'; var rt = box.querySelector('[data-retry]'); if (rt) rt.onclick = function () { show(tab); }; }
     if (t !== navToken) return;
-    if (changed) box.classList.add('view-in');
-    main.replaceChildren(box);
+        main.replaceChildren(box);
     main.classList.remove('loading'); main.removeAttribute('aria-busy');
     if (!changed) window.scrollTo(0, keepY);
     refreshBadges(!changed);
