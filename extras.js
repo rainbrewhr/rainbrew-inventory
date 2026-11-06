@@ -149,7 +149,7 @@
     function draw() {
       var out = $('#rl', box); out.innerHTML = '';
       var vis = visible();
-      if (!vis.length) { out.innerHTML = '<div class="card">' + R.ui.empty('done', 'All caught up', 'No station requests are waiting to be released.') + '</div>'; return; }
+      if (!vis.length) { out.innerHTML = '<div class="card">' + R.ui.empty('done', 'Nothing to release', 'New station requests show up here as soon as someone sends one.') + '</div>'; return; }
       vis.forEach(function (r) {
         var c = document.createElement('div'); c.className = 'card';
         var lines = R.openLines(r);
@@ -216,7 +216,7 @@
       if (!names.length) out.innerHTML = '<div class="card">' + R.ui.empty('buy', 'Nothing to buy right now', 'Items appear here when they run low or someone sends a buy request. Reorder levels are set in Manage › Items.') + '</div>';
       names.forEach(function (n) {
         var rs = g[n], c = document.createElement('div'); c.className = 'card';
-        c.innerHTML = '<div class="row"><h2 class="grow">' + esc(n) + '</h2><button class="btn alt sm" data-p>Print</button><button class="btn alt sm" data-c>Copy</button><button class="btn sm" data-r>Receive bought</button></div><div class="tbl"><table class="fx"><colgroup>' + BUY_W.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup><thead><tr>' +
+        c.innerHTML = '<div class="row"><h2 class="grow">' + esc(n) + '</h2><button class="btn alt sm" data-p>Print</button><button class="btn alt sm" data-c>Copy</button><button class="btn sm" data-r>Receive delivery</button></div><div class="tbl"><table class="fx"><colgroup>' + BUY_W.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup><thead><tr>' +
           BUY_HEAD.map(function (h, i) { return '<th' + ([1, 2, 5].indexOf(i) >= 0 ? ' class="num"' : '') + '>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
           rs.map(function (r) { var i = r.item; return '<tr class="click" data-item="' + i.id + '"><td>' + esc(i.name) + '</td><td class="num">' + fmt(i.current_stock) + '</td><td class="num">' + fmt(r.qty) + '</td><td>' + esc(R.unitFor(i)) + '</td><td>' + esc(alt(i)) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-act="' + i.id + '" value="' + esc(bought(r)) + '"></td></tr>'; }).join('') + '</tbody></table></div>';
         $('[data-p]', c).onclick = function () { printHtml('Buy list ' + n, buyDoc([[n, rs]]), 'A4'); };
@@ -319,7 +319,7 @@
         return '<div class="card"><div class="row"><h2 class="grow">' + esc(x.id) + (x.station ? ' · ' + esc(x.station) : '') + '</h2>' + pill(x.status) + '<button class="btn alt sm" data-pr="' + esc(x.id) + '">Print A6</button>' + (R.role() === 'Admin' && ['Pending', 'Rejected'].indexOf(x.status) >= 0 ? '<button class="btn alt sm" data-del="' + esc(x.id) + '">Delete</button>' : '') + '</div>' +
           '<p class="muted">' + esc(x.requester_name || '') + ' · ' + esc(when(x.created_at)) + (x.notes ? ' · ' + esc(x.notes) : '') + '</p><div class="tbl"><table><tbody>' +
           (x.request_items || []).map(function (l) { return '<tr><td>' + esc(l.items ? l.items.name : '') + '</td><td class="num">' + fmt(l.fulfilled_qty) + ' / ' + fmt(l.requested_qty) + ' ' + esc(l.unit || '') + '</td><td>' + pill(l.status) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
-      }).join('') || '<div class="card">' + R.ui.empty('search', 'No requests found', 'Try a different ID, status or date range.') + '</div>';
+      }).join('') || '<div class="card">' + R.ui.empty(mine ? 'req' : 'search', mine ? 'No requests yet' : 'No requests found', mine ? 'Tap the + button to send your first request.' : 'Try a different ID, status or date range.') + '</div>';
       if (last.mv.length) {
         out.insertAdjacentHTML('beforeend', '<div class="card"><h2>Stock movements (' + last.mv.length + ')</h2><div class="tbl"><table><tbody>' + last.mv.map(function (m) {
           return '<tr><td class="muted">' + esc(when(m.ts)) + '</td><td>' + esc(m.type) + '</td><td>' + esc(m.items ? m.items.name : '') + '</td><td class="num">' + (m.signed_qty > 0 ? '+' : '') + fmt(m.signed_qty) + '</td><td class="muted hm">' + esc(m.reference || '') + '</td></tr>';
@@ -437,7 +437,7 @@
     var pend = people.filter(function (p) { return !p.approved; }).length, nost = people.filter(function (p) { return p.active && p.approved && (p.role === 'Station Staff' || p.role === 'Requester') && !p.station; }).map(function (p) { return p.name; });
     var NEED = { nosup: function (i) { return !i.supplier_id; }, noreorder: function (i) { return i.reorder_point == null; }, nocrit: function (i) { return i.critical_level == null; }, nopar: function (i) { return i.par_target == null; }, noloc: function (i) { return !(i.stocked_at || []).length; }, neg: function (i) { return Number(i.current_stock) < 0; }, inactive: function (i) { return !i.active; } };
     box.innerHTML = '<div class="card"><h2>Data health</h2>' + checks.map(function (c) { return '<div class="row" style="padding:3px 0"><span class="grow">' + esc(c[1]) + '</span>' + (c[2] ? '<button class="btn alt sm" data-need="' + c[0] + '">' + c[2] + ' — show</button>' : '<span class="pill OK">OK</span>') + '</div>'; }).join('') +
-      '<div class="row" style="padding:3px 0"><span class="grow">Accounts waiting for approval</span>' + (pend ? '<span class="pill Pending">' + pend + ' — see Users</span>' : '<span class="pill OK">OK</span>') + '</div>' +
+      '<div class="row" style="padding:3px 0"><span class="grow">Accounts waiting for approval</span>' + (pend ? '<span class="pill Pending">' + pend + ' — see People</span>' : '<span class="pill OK">OK</span>') + '</div>' +
       '<div class="row" style="padding:3px 0"><span class="grow">Station staff / requesters without a station</span>' + (nost.length ? '<span class="pill Pending">' + esc(nost.join(', ')) + '</span>' : '<span class="pill OK">OK</span>') + '</div></div>' +
       '<details class="card"><summary><b>Add item</b></summary><div class="row" style="margin-top:8px"><input id="an" class="grow" placeholder="Item name"><input id="ac" list="cl" class="grow" placeholder="Category"><select id="au" style="max-width:110px">' + opts(UNITS, '', 'Unit') + '</select></div>' +
       '<div class="row" style="margin-top:8px"><input id="al" list="ll" class="grow" placeholder="Stock room / location (comma separated)"><input id="as" list="sl" class="grow" placeholder="Used by stations (comma separated)"></div>' +
