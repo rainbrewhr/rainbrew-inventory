@@ -216,11 +216,12 @@
       if (!names.length) out.innerHTML = '<div class="card">' + R.ui.empty('buy', 'Nothing to buy right now', 'Items appear here when they run low or someone sends a buy request. Reorder levels are set in Manage › Items.') + '</div>';
       names.forEach(function (n) {
         var rs = g[n], c = document.createElement('div'); c.className = 'card';
-        c.innerHTML = '<div class="row"><h2 class="grow">' + esc(n) + '</h2><button class="btn alt sm" data-p>Print</button><button class="btn alt sm" data-c>Copy</button><button class="btn sm" data-r>Receive delivery</button></div><div class="tbl"><table class="fx"><colgroup>' + BUY_W.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup><thead><tr>' +
+        c.innerHTML = '<div class="row"><h2 class="grow">' + esc(n) + '</h2><button class="btn alt sm" data-p>Print</button><button class="btn alt sm" data-c>Copy</button>' + (navigator.share ? '<button class="btn alt sm" data-sh>Share</button>' : '') + '<button class="btn alt sm" data-c>Copy</button><button class="btn sm" data-r>Receive delivery</button></div><div class="tbl"><table class="fx"><colgroup>' + BUY_W.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup><thead><tr>' +
           BUY_HEAD.map(function (h, i) { return '<th' + ([1, 2, 5].indexOf(i) >= 0 ? ' class="num"' : '') + '>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
           rs.map(function (r) { var i = r.item; return '<tr class="click" data-item="' + i.id + '"><td>' + esc(i.name) + '</td><td class="num">' + fmt(i.current_stock) + '</td><td class="num">' + fmt(r.qty) + '</td><td>' + esc(R.unitFor(i)) + '</td><td>' + esc(alt(i)) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-act="' + i.id + '" value="' + esc(bought(r)) + '"></td></tr>'; }).join('') + '</tbody></table></div>';
         $('[data-p]', c).onclick = function () { printHtml('Buy list ' + n, buyDoc([[n, rs]]), 'A4'); };
         $('[data-c]', c).onclick = function () { var t = listText(n, rs); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('Copied'); }, function () { R.ui.copy(t); }); };
+        var sh = $('[data-sh]', c); if (sh) sh.onclick = function () { navigator.share({ title: 'Buy list · ' + n, text: listText(n, rs) }).catch(function () { /* cancelled */ }); };
         $('[data-r]', c).onclick = function () {
           var lines = rs.filter(function (r) { return Number(bought(r)) > 0; }).map(function (r) { return { item: r.item, qty: String(bought(r)) }; });
           if (!lines.length) return toast('Type the actual bought quantities first', true);

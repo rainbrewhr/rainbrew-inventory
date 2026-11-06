@@ -322,3 +322,10 @@ body.has-fab main{padding-bottom:120px}
 .sk-form{height:300px;border-radius:var(--radius)}
 @media (max-width:767px){.sk-kpis{grid-template-columns:repeat(2,1fr)}.sk-two{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){.sk{animation:none}}
+
+/* ---------- phone sheets: grab bar + drag to dismiss ---------- */
+@media (max-width:767px){
+  .modal .sheet .sh{position:relative;padding-top:24px;touch-action:none}
+  .modal .sheet .sh::before{content:"";position:absolute;top:8px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:999px;background:var(--line)}
+  .drawer .dh{touch-action:pan-y}
+}

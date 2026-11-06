@@ -21,3 +21,7 @@ These keep the app from drifting into generic "template" styling. Check a change
 **Readable.** Text contrast at least 4.5:1 on both themes. Tap targets at least 44 px on phones. Quantities use tabular numerals and thousands separators (18,000).
 
 **Every state is designed.** Loading shapes match the screen they stand in for. Empty states say how to fill them. Errors are inline and specific (offline has its own message).
+
+**Back button.** Every popup, side panel and phone menu owns one history entry (`ovOpen` / `ovRelease` in `app.js`), so Back closes the top-most one before it leaves the app. Phone sheets and the side panel can be swiped away.
+
+**Optimistic only after the server agrees.** Stock numbers never change on screen before the database confirms; once it does, the new balance shows immediately and the catalog refreshes in the background. Pressing a tab warms the catalog so the next screen opens faster.

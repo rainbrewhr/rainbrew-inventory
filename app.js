@@ -325,12 +325,57 @@
     };
   }
 
+  /* Back button: each open popup / panel / phone menu owns one history entry, so Back closes it instead of leaving the app. */
+  var ovl = [], ovSkip = 0, hashGuard = false;
+  function ovOpen(closeFn) {
+    var tok = { close: closeFn };
+    try { history.pushState({ rbo: 1 }, '', location.href); ovl.push(tok); } catch (e) { /* no history API: Back simply leaves, as before */ }
+    return tok;
+  }
+  function ovRelease(tok) {
+    var i = tok ? ovl.indexOf(tok) : -1; if (i < 0) return; // already closed by the Back button
+    ovl.splice(i, 1); ovSkip++;
+    try { history.back(); } catch (e) { ovSkip--; }
+  }
+  window.addEventListener('popstate', function () {
+    if (ovSkip > 0) { // we closed it ourselves: drop its history entry quietly and keep the URL on the current tab
+      ovSkip--; hashGuard = true; setTimeout(function () { hashGuard = false; }, 0);
+      try { if (cur && location.hash.slice(1) !== cur) history.replaceState(null, '', '#' + cur); } catch (e) { /* ignore */ }
+      return;
+    }
+    var top = ovl.pop(); if (top) { try { top.close(); } catch (e) { /* ignore */ } }
+  });
+  /* Swipe a phone sheet down (or the side panel right) to dismiss it. Taps and scrolling are untouched until a real drag starts. */
+  function dragDismiss(handle, panel, axis, done) {
+    var st = null;
+    handle.addEventListener('pointerdown', function (e) {
+      if (e.pointerType === 'mouse' || e.target.closest('button,input,select,textarea,a')) return;
+      st = { x: e.clientX, y: e.clientY, t: Date.now(), on: false, d: 0 };
+    });
+    handle.addEventListener('pointermove', function (e) {
+      if (!st) return;
+      var d = axis === 'y' ? e.clientY - st.y : e.clientX - st.x, o = axis === 'y' ? e.clientX - st.x : e.clientY - st.y;
+      if (!st.on) { if (Math.abs(o) > Math.abs(d) || d < 8) { if (Math.abs(o) > 10) st = null; return; } st.on = true; try { handle.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ } panel.style.transition = 'none'; }
+      st.d = Math.max(0, d); panel.style.transform = axis === 'y' ? 'translateY(' + st.d + 'px)' : 'translateX(' + st.d + 'px)';
+    });
+    function end() {
+      if (!st) return; var s2 = st; st = null; if (!s2.on) return;
+      var fast = s2.d / Math.max(1, Date.now() - s2.t) > 0.6;
+      panel.style.transition = 'transform .18s ease-out';
+      if (s2.d > 90 || fast) { panel.style.transform = axis === 'y' ? 'translateY(110%)' : 'translateX(110%)'; setTimeout(function () { panel.style.transition = ''; panel.style.transform = ''; done(); }, 170); }
+      else { panel.style.transform = ''; setTimeout(function () { panel.style.transition = ''; }, 190); }
+    }
+    handle.addEventListener('pointerup', end); handle.addEventListener('pointercancel', end);
+  }
+  var navTok = null;
   function closeDrawer() {
     var side = $('#side'), scrim = $('#scrim');
     if (side) side.classList.remove('open');
     if (scrim) scrim.classList.remove('open');
+    if (navTok) { var t = navTok; navTok = null; ovRelease(t); }
   }
   function openDrawer() {
+    if (!navTok) navTok = ovOpen(function () { navTok = null; var side = $('#side'), scrim = $('#scrim'); if (side) side.classList.remove('open'); if (scrim) scrim.classList.remove('open'); });
     $('#side').classList.add('open'); $('#scrim').classList.add('open');
     var first = $('#side nav.tabs button.on') || $('#side nav.tabs button'); if (first) first.focus();
   }
@@ -364,6 +409,8 @@
         show(S.lastTab[pg.id] && ok.indexOf(S.lastTab[pg.id]) >= 0 ? S.lastTab[pg.id] : ok[0]);
       };
     });
+    function warm() { loadCatalog(true).catch(function () { /* the view will report any real error */ }); }
+    root.addEventListener('pointerdown', function (e) { if (e.target.closest('nav.tabs button,#subnav button,.fab')) warm(); }, { passive: true });
     $('#subnav').addEventListener('click', function (e) { var b = e.target.closest('button[data-t]'); if (b) show(b.dataset.t); });
     // Phones: turn every table into a stack of labelled cards; keeps working when a view redraws its rows.
     var pending = false;
@@ -373,7 +420,7 @@
     }).observe(main, { childList: true, subtree: true });
     window.addEventListener('hashchange', function () {
       var h = location.hash.slice(1);
-      if (h && h !== cur && TABS[h] && allowed.indexOf(h) >= 0) show(h);
+      if (!hashGuard && h && h !== cur && TABS[h] && allowed.indexOf(h) >= 0) show(h);
     });
     refreshBadges();
     return allowed;
@@ -526,11 +573,13 @@
         '<div class="sb">' + (o.body || '') + '<p class="muted" data-err style="color:var(--crit);margin:10px 0 0" role="alert"></p></div>' +
         '<div class="sf">' + (o.actions || []).map(function (a, i) { return '<button class="btn ' + (a.kind || '') + '" data-a="' + i + '">' + (a.icon ? icon(a.icon) : '') + esc(a.label) + '</button>'; }).join('') + '</div></div>';
       document.body.appendChild(m);
-      function close(v) { document.removeEventListener('keydown', onKey); m.remove(); if (before && before.focus) before.focus(); resolve(v); }
+      var tok = ovOpen(function () { close(null); });
+      function close(v) { document.removeEventListener('keydown', onKey); ovRelease(tok); m.remove(); if (before && before.focus) before.focus(); resolve(v); }
       function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); close(null); } }
       document.addEventListener('keydown', onKey);
       m.addEventListener('mousedown', function (e) { if (e.target === m && !o.persistent) close(null); });
       $('[data-x]', m).onclick = function () { close(null); };
+      if (!o.persistent) dragDismiss($('.sh', m), $('.sheet', m), 'y', function () { close(null); });
       m.querySelectorAll('[data-a]').forEach(function (btn) {
         btn.onclick = async function () {
           var a = o.actions[+btn.dataset.a], err = $('[data-err]', m); err.textContent = '';
@@ -561,22 +610,25 @@
   }
 
   /* ---------- item inspector (side panel) ---------- */
-  var drawerEl = null, drawerId = null;
+  var drawerEl = null, drawerId = null, drawerTok = null, drawerDrag = false;
   function ensureDrawer() {
     if (drawerEl) return;
     var sc = document.createElement('div'); sc.className = 'dscrim'; sc.id = 'dscrim'; sc.onclick = closeItem;
     drawerEl = document.createElement('aside'); drawerEl.className = 'drawer'; drawerEl.setAttribute('role', 'dialog'); drawerEl.setAttribute('aria-modal', 'true'); drawerEl.setAttribute('aria-label', 'Item details');
     document.body.appendChild(sc); document.body.appendChild(drawerEl);
+    drawerEl.addEventListener('transitionend', function () { /* keep inline drag styles clean */ });
   }
   function closeItem() {
     if (!drawerEl) return;
     drawerEl.classList.remove('open'); $('#dscrim').classList.remove('open'); drawerId = null;
+    if (drawerTok) { var t = drawerTok; drawerTok = null; ovRelease(t); }
   }
   var MOVE = { RECEIVE: ['receive', 'in', 'Received'], RELEASE: ['release', 'out', 'Released'], ADJUST: ['sliders', 'out', 'Adjusted'], WASTE: ['waste', 'out', 'Waste'], OPENING: ['stock', 'in', 'Opening balance'] };
   function statusTone(st) { return st === 'CRITICAL' ? 'crit' : st === 'LOW' ? 'warn' : 'ok'; }
   async function openItem(id) {
     var it = S.map.get(id); if (!it) return;
     ensureDrawer(); drawerId = id;
+    if (!drawerTok) drawerTok = ovOpen(function () { drawerTok = null; if (drawerEl) { drawerEl.classList.remove('open'); $('#dscrim').classList.remove('open'); } drawerId = null; });
     var ops = OPS.indexOf(role()) >= 0, canAdjust = role() === 'Admin' || role() === 'Stock Keeper';
     var sm = {}; try { (await suppliers()).forEach(function (x) { sm[x.id] = x.name; }); } catch (e) { /* names are optional */ }
     var alts = [it.alt_supplier_1_id, it.alt_supplier_2_id].map(function (x) { return sm[x]; }).filter(Boolean);
@@ -592,6 +644,7 @@
       '<div class="df">' + (canAdjust ? '<button class="btn" id="dadj">' + icon('sliders') + 'Adjust stock</button>' : '') + (REQUESTERS.indexOf(role()) >= 0 ? '<button class="btn ' + (canAdjust ? 'alt' : '') + '" id="dreq">' + icon('req') + 'Request this</button>' : '') + (role() === 'Admin' ? '<button class="btn alt" id="dedit">' + icon('edit') + 'Edit</button>' : '') + '</div>';
     decorateButtons(drawerEl);
     $('#dx', drawerEl).onclick = closeItem;
+    dragDismiss($('.dh', drawerEl), drawerEl, 'x', closeItem);
     var adj = $('#dadj', drawerEl); if (adj) adj.onclick = function () { adjustDialog(it); };
     var rq = $('#dreq', drawerEl); if (rq) rq.onclick = function () { closeItem(); show('req', { addItem: it.id }); };
     var ed = $('#dedit', drawerEl); if (ed) ed.onclick = function () { closeItem(); show('items', { q: it.name }); };
@@ -618,7 +671,8 @@
         if (!d) throw new Error('Enter a quantity to add or remove.'); if (!r) throw new Error('Choose a reason.');
         if (Number(it.current_stock) + d < 0) throw new Error('That would take stock below zero.');
         await rpc('adjust_stock', { p_item_ids: [it.id], p_delta: d, p_reason: r, p_note: $('#ad-n', m).value.trim() || null });
-        await loadCatalog(true); toast(it.name + ' updated'); openItem(it.id); show(cur); return true;
+        it.current_stock = Number(it.current_stock) + d; toast(it.name + ' updated'); openItem(it.id); // server confirmed: show the new balance now
+        loadCatalog(true).then(function () { show(cur); }, function () { show(cur); }); return true;
       } }] }).then(function () { /* closed */ });
     setTimeout(function () {
       var m = document.querySelector('.modal'); if (!m) return;
