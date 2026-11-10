@@ -86,13 +86,13 @@
 
   // Sidebar pages; each page groups related screens as tabs inside it.
   var PAGES = [
-    { id: 'home', label: 'Dashboard', icon: 'dash', tabs: ['dash'] },
-    { id: 'stock', label: 'Stock', icon: 'stock', tabs: ['stock'] },
-    { id: 'room', label: 'Stock room', icon: 'room', tabs: ['release', 'count', 'waste'] },
-    { id: 'buying', label: 'Buying', icon: 'buy', tabs: ['buy', 'receive'] },
-    { id: 'requests', label: 'Requests', icon: 'req', tabs: ['req', 'buyreq', 'mine', 'swaste'] },
-    { id: 'records', label: 'Records', icon: 'reports', tabs: ['reports', 'history'] },
-    { id: 'manage', label: 'Manage', icon: 'items', tabs: ['items', 'places', 'users'] }
+    { id: 'home', label: 'Dashboard', sub: 'Today at a glance', icon: 'dash', tabs: ['dash'] },
+    { id: 'stock', label: 'Stock', sub: 'Levels and item details', icon: 'stock', tabs: ['stock'] },
+    { id: 'room', label: 'Stock room', sub: 'Release, count, waste', icon: 'room', tabs: ['release', 'count', 'waste'] },
+    { id: 'buying', label: 'Buying', sub: 'Buy list and deliveries', icon: 'buy', tabs: ['buy', 'receive'] },
+    { id: 'requests', label: 'Requests', sub: 'Ask for stock or to buy', icon: 'req', tabs: ['req', 'buyreq', 'mine', 'swaste'] },
+    { id: 'records', label: 'Records', sub: 'Reports and history', icon: 'reports', tabs: ['reports', 'history'] },
+    { id: 'manage', label: 'Manage', sub: 'Items, places, people', icon: 'items', tabs: ['items', 'places', 'users'] }
   ];
   function pageOf(tab) { return PAGES.filter(function (p) { return p.tabs.indexOf(tab) >= 0; })[0]; }
   var LANDING = { 'Admin': 'dash', 'Stock Keeper': 'release', 'Procurement Officer': 'buy', 'Station Staff': 'req', 'Requester': 'req', 'Viewer': 'dash' };
@@ -396,7 +396,8 @@
     var pages = PAGES.filter(function (p) { return p.tabs.some(function (t) { return allowed.indexOf(t) >= 0; }); });
     root.innerHTML = '<div class="shell"><div class="scrim" id="scrim"></div>' +
       '<aside class="side" id="side" aria-label="Navigation"><div class="brandrow">' + logo() + '<div class="brandtxt"><b>' + BRAND + '</b><span>' + esc(profile.role) + '</span></div><button class="icon-btn sclose" id="sclose" aria-label="Close menu">' + icon('x') + '</button></div>' +
-      '<nav class="tabs" aria-label="Primary">' + pages.map(function (p) { return '<button data-page="' + p.id + '" title="' + esc(p.label) + '">' + icon(p.icon) + '<span>' + esc(p.label) + '</span><em class="badge hide" data-badge="' + p.id + '"></em></button>'; }).join('') + '</nav>' +
+      '<nav class="tabs" aria-label="Primary">' + pages.map(function (p) { return '<button data-page="' + p.id + '" title="' + esc(p.label + ' · ' + p.sub) + '">' + icon(p.icon) + '<span class="nl"><b>' + esc(p.label) + '</b><small>' + esc(p.sub) + '</small></span><em class="badge hide" data-badge="' + p.id + '"></em></button>'; }).join('') + '</nav>' +
+      '<button class="collapse" id="collapse" type="button" aria-label="Collapse menu" aria-expanded="true" title="Collapse menu">' + icon('chevr') + '<span>Collapse</span></button>' +
       '<div class="userrow"><span class="avatar" aria-hidden="true">' + esc(initials(profile.name)) + '</span><div class="usertxt"><b>' + esc(profile.name) + '</b><span>' + esc(profile.role) + '</span></div><button class="icon-btn" id="so" aria-label="Sign out" title="Sign out">' + icon('logout') + '</button></div></aside>' +
       '<div class="col"><header class="cmd"><button class="icon-btn menu" id="menu" aria-label="Open menu">' + icon('menu') + '</button><div class="ptitle"><h1 id="ptitle"></h1><p id="psub"></p></div><div class="sp"></div><button class="icon-btn" id="theme"></button></header><div class="subnav" id="subnav" role="tablist"></div><main id="main"></main></div>' +
       (allowed.indexOf('req') >= 0 ? '<div class="fabs" id="fabs"><button class="fab alt" id="fab-buy" aria-label="Request to buy" title="Request to buy">' + icon('buy', 'lg') + '<span>Request to buy</span></button><button class="fab" id="fab-req" aria-label="New stock request" title="New stock request">' + icon('plus', 'lg') + '<span>New request</span></button></div>' : '') + '</div>';
@@ -404,6 +405,14 @@
     if ($('#fabs')) { var lastY = window.scrollY, away = false; window.addEventListener('scroll', function () { var y = window.scrollY, d = y - lastY; if (Math.abs(d) < 8) return; var want = d > 0 && y > 120; if (want !== away) { away = want; document.body.classList.toggle('fab-away', away); } lastY = y; }, { passive: true }); }
     if ($('#fabs')) { document.body.classList.add('has-fab'); $('#fab-req').onclick = function () { show('req'); }; $('#fab-buy').onclick = function () { show('buyreq'); }; }
     paintThemeButton();
+    function setMin(on, save) {
+      document.body.classList.toggle('side-min', on);
+      var cb = $('#collapse'); if (cb) { cb.setAttribute('aria-expanded', String(!on)); cb.setAttribute('aria-label', on ? 'Expand menu' : 'Collapse menu'); cb.title = on ? 'Expand menu' : 'Collapse menu'; }
+      if (save) { try { localStorage.setItem('rb_side', on ? 'min' : 'full'); } catch (e) { /* ignore */ } }
+    }
+    var wasMin = false; try { wasMin = localStorage.getItem('rb_side') === 'min'; } catch (e) { /* ignore */ }
+    setMin(wasMin, false);
+    $('#collapse').onclick = function () { setMin(!document.body.classList.contains('side-min'), true); };
     $('#so').onclick = async function () { await sb.auth.signOut(); location.reload(); };
     $('#menu').onclick = openDrawer; $('#sclose').onclick = closeDrawer; $('#scrim').onclick = closeDrawer;
     $('#theme').onclick = function () {
