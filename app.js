@@ -77,6 +77,7 @@
     done: '<path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="M22 4L12 14l-3-3"/>',
     x: '<path d="M18 6L6 18M6 6l12 12"/>',
     logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
+    bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>'
   };
@@ -141,7 +142,7 @@
     if (S.items.length && (!force || fresh)) return;
     if (catalogInflight) return catalogInflight;
     catalogInflight = rpc('catalog').then(function (rows) {
-      setItems(rows); S.catAt = Date.now(); S.catDirty = false;
+      setItems(rows); S.catAt = Date.now(); S.catDirty = false; afterCatalog();
       try { localStorage.setItem('rb_cat_' + S.user.id, JSON.stringify(rows)); } catch (e) { /* storage unavailable */ }
     }).finally(function () { catalogInflight = null; });
     return catalogInflight;
@@ -287,6 +288,72 @@
     };
   }
 
+  /* ---------- stock alerts: bell, badge, toast, optional device notification ---------- */
+  var ALERT_ROLES = ['Admin', 'Stock Keeper', 'Procurement Officer', 'Viewer'], SEV = { LOW: 1, CRITICAL: 2 }, alertTimer = null;
+  function alertKey() { return 'rb_alert_' + (S.user && S.user.id); }
+  function alertSeen() { try { return JSON.parse(localStorage.getItem(alertKey()) || '{}'); } catch (e) { return {}; } }
+  function saveSeen(m) { try { localStorage.setItem(alertKey(), JSON.stringify(m)); } catch (e) { /* ignore */ } }
+  function alertItems() { return S.items.filter(function (i) { return i.active && SEV[i.status]; }).sort(function (a, b) { return SEV[b.status] - SEV[a.status] || Number(a.current_stock) - Number(b.current_stock) || String(a.name).localeCompare(String(b.name)); }); }
+  function newAlerts() { var seen = alertSeen(); return alertItems().filter(function (i) { return SEV[i.status] > (seen[i.id] || 0); }); }
+  function paintBell() {
+    var b = $('#bell'); if (!b) return;
+    var fresh = newAlerts(), tot = alertItems(), n = $('#bell-n');
+    n.textContent = fresh.length > 99 ? '99+' : String(fresh.length); n.classList.toggle('hide', !fresh.length);
+    n.classList.toggle('warn', !fresh.some(function (i) { return i.status === 'CRITICAL'; }));
+    b.setAttribute('aria-label', 'Stock alerts: ' + fresh.length + ' new, ' + tot.length + ' in total');
+  }
+  function deviceNotify(title, body) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    var opts = { body: body, icon: 'app-icon-192.png', badge: 'app-favicon-32.png', tag: 'rb-stock-alerts', renotify: true };
+    if (navigator.serviceWorker && navigator.serviceWorker.ready) navigator.serviceWorker.ready.then(function (reg) { return reg.showNotification(title, opts); }).catch(function () { try { new Notification(title, opts); } catch (e) { /* ignore */ } });
+    else { try { new Notification(title, opts); } catch (e) { /* ignore */ } }
+  }
+  function afterCatalog(initial) {
+    if (!S.profile || ALERT_ROLES.indexOf(S.profile.role) < 0) return;
+    // an item that recovered can alert again next time it drops
+    var seen = alertSeen(), live = {}, changed = false;
+    alertItems().forEach(function (i) { live[i.id] = 1; });
+    Object.keys(seen).forEach(function (id) { if (!live[id]) { delete seen[id]; changed = true; } });
+    if (changed) saveSeen(seen);
+    var fresh = newAlerts();
+    S.announced = S.announced || {};
+    var tell = fresh.filter(function (i) { return !S.announced[i.id + ':' + i.status]; });
+    tell.forEach(function (i) { S.announced[i.id + ':' + i.status] = 1; });
+    if (tell.length) {
+      var crit = tell.filter(function (i) { return i.status === 'CRITICAL'; }).length, names = tell.slice(0, 3).map(function (i) { return i.name; }).join(', ') + (tell.length > 3 ? ' +' + (tell.length - 3) + ' more' : '');
+      var msg = (crit ? crit + ' critical' + (tell.length > crit ? ', ' + (tell.length - crit) + ' low' : '') : tell.length + ' low') + ' · ' + names;
+      if (document.hidden && !initial) deviceNotify('Stock alert', msg); else if (!document.hidden) toast(msg, crit > 0);
+    }
+    paintBell();
+  }
+  function startAlertWatch() {
+    if (alertTimer || !S.profile || ALERT_ROLES.indexOf(S.profile.role) < 0) return;
+    var tick = function () { if (S.user) loadCatalog(true).catch(function () { /* offline: try again later */ }); };
+    alertTimer = setInterval(tick, 90000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) tick(); });
+  }
+  async function openAlerts() {
+    var fresh = {}; newAlerts().forEach(function (i) { fresh[i.id] = 1; });
+    var items = alertItems(), crit = items.filter(function (i) { return i.status === 'CRITICAL'; }), low = items.filter(function (i) { return i.status === 'LOW'; });
+    function rows(list) { return list.map(function (i) { return '<button type="button" class="arow" data-ai="' + i.id + '"><span class="adot ' + (i.status === 'CRITICAL' ? 'crit' : 'warn') + '"></span><span class="grow"><b>' + esc(i.name) + '</b><small>' + fmt(i.current_stock) + ' ' + esc(i.unit || '') + (i.reorder_point != null ? ' · reorder at ' + fmt(i.reorder_point) : '') + '</small></span>' + (fresh[i.id] ? '<span class="pill Pending">New</span>' : '') + '</button>'; }).join(''); }
+    var perm = 'Notification' in window ? Notification.permission : 'unsupported';
+    var dev = perm === 'granted' ? '<p class="muted" style="margin:12px 0 0">' + icon('check', 'sm') + ' Device alerts are on. You get a notification when new items run low while the app is open in the background.</p>'
+      : perm === 'denied' ? '<p class="muted" style="margin:12px 0 0">Device alerts are blocked in this browser. Allow notifications for this site in the browser settings to turn them on.</p>'
+      : perm === 'unsupported' ? '' : '<button type="button" class="btn alt sm" id="adev" style="margin-top:12px">' + icon('bell', 'sm') + 'Turn on device alerts</button>';
+    var body = items.length ? (crit.length ? '<div class="section" style="margin-top:0">Critical or out (' + crit.length + ')</div><div class="alist">' + rows(crit) + '</div>' : '') + (low.length ? '<div class="section">Running low (' + low.length + ')</div><div class="alist">' + rows(low) + '</div>' : '') + dev
+      : emptyState('done', 'Everything is stocked', 'You will be alerted here as soon as an item reaches its reorder or critical level.') + dev;
+    var seenNow = alertSeen(); items.forEach(function (i) { seenNow[i.id] = SEV[i.status]; }); saveSeen(seenNow); paintBell();
+    var res = popup({ title: 'Stock alerts', icon: 'bell', tone: items.length ? (crit.length ? 'crit' : 'warn') : 'ok', body: body, actions: [{ label: 'Close', kind: 'alt', value: null }].concat(items.length ? [{ label: 'Open stock list', kind: 'primary-go', icon: 'stock', value: 'stock' }] : []) });
+    setTimeout(function () {
+      var m = document.querySelector('.modal'); if (!m) return;
+      m.addEventListener('click', function (e) {
+        var a = e.target.closest('[data-ai]'); if (a) { var x = m.querySelector('[data-x]'); if (x) x.click(); setTimeout(function () { openItem(a.dataset.ai); }, 60); return; }
+        var d = e.target.closest('#adev'); if (d) Notification.requestPermission().then(function (p) { toast(p === 'granted' ? 'Device alerts are on' : 'Device alerts were not allowed', p !== 'granted'); var x = m.querySelector('[data-x]'); if (x) x.click(); });
+      });
+    }, 0);
+    var v = await res; if (v === 'stock') show('stock', { status: crit.length ? 'CRITICAL' : 'LOW' });
+  }
+
   /* ---------- shell + auth ---------- */
   function logo() { return '<img src="icon-192.png" alt="">'; }
 
@@ -399,12 +466,13 @@
       '<nav class="tabs" aria-label="Primary">' + pages.map(function (p) { return '<button data-page="' + p.id + '" title="' + esc(p.label + ' · ' + p.sub) + '">' + icon(p.icon) + '<span class="nl"><b>' + esc(p.label) + '</b><small>' + esc(p.sub) + '</small></span><em class="badge hide" data-badge="' + p.id + '"></em></button>'; }).join('') + '</nav>' +
       '<button class="collapse" id="collapse" type="button" aria-label="Collapse menu" aria-expanded="true" title="Collapse menu">' + icon('chevr') + '<span>Collapse</span></button>' +
       '<div class="userrow"><span class="avatar" aria-hidden="true">' + esc(initials(profile.name)) + '</span><div class="usertxt"><b>' + esc(profile.name) + '</b><span>' + esc(profile.role) + '</span></div><button class="icon-btn" id="so" aria-label="Sign out" title="Sign out">' + icon('logout') + '</button></div></aside>' +
-      '<div class="col"><header class="cmd"><button class="icon-btn menu" id="menu" aria-label="Open menu">' + icon('menu') + '</button><div class="ptitle"><h1 id="ptitle"></h1><p id="psub"></p></div><div class="sp"></div><button class="icon-btn" id="theme"></button></header><div class="subnav" id="subnav" role="tablist"></div><main id="main"></main></div>' +
+      '<div class="col"><header class="cmd"><button class="icon-btn menu" id="menu" aria-label="Open menu">' + icon('menu') + '</button><div class="ptitle"><h1 id="ptitle"></h1><p id="psub"></p></div><div class="sp"></div>' + (ALERT_ROLES.indexOf(profile.role) >= 0 ? '<button class="icon-btn bell" id="bell" aria-label="Stock alerts" title="Stock alerts">' + icon('bell') + '<em class="bell-n hide" id="bell-n"></em></button>' : '') + '<button class="icon-btn" id="theme"></button></header><div class="subnav" id="subnav" role="tablist"></div><main id="main"></main></div>' +
       (allowed.indexOf('req') >= 0 ? '<div class="fabs" id="fabs"><button class="fab alt" id="fab-buy" aria-label="Request to buy" title="Request to buy">' + icon('buy', 'lg') + '<span>Request to buy</span></button><button class="fab" id="fab-req" aria-label="New stock request" title="New stock request">' + icon('plus', 'lg') + '<span>New request</span></button></div>' : '') + '</div>';
     main = $('#main');
     if ($('#fabs')) { var lastY = window.scrollY, away = false; window.addEventListener('scroll', function () { var y = window.scrollY, d = y - lastY; if (Math.abs(d) < 8) return; var want = d > 0 && y > 120; if (want !== away) { away = want; document.body.classList.toggle('fab-away', away); } lastY = y; }, { passive: true }); }
     if ($('#fabs')) { document.body.classList.add('has-fab'); $('#fab-req').onclick = function () { show('req'); }; $('#fab-buy').onclick = function () { show('buyreq'); }; }
     paintThemeButton();
+    if ($('#bell')) { $('#bell').onclick = openAlerts; paintBell(); startAlertWatch(); }
     function setMin(on, save) {
       document.body.classList.toggle('side-min', on);
       var cb = $('#collapse'); if (cb) { cb.setAttribute('aria-expanded', String(!on)); cb.setAttribute('aria-label', on ? 'Expand menu' : 'Collapse menu'); cb.title = on ? 'Expand menu' : 'Collapse menu'; }
@@ -553,7 +621,7 @@
     var tab = allowed.indexOf(wanted) >= 0 ? wanted : (allowed.indexOf(LANDING[S.profile.role]) >= 0 ? LANDING[S.profile.role] : allowed[0]);
     if (cached && cached.length) {
       setItems(cached);
-      show(tab);
+      show(tab); afterCatalog(true);
       loadCatalog(true).then(function () { if (['dash', 'buy', 'items'].indexOf(cur) >= 0) show(cur); }).catch(function () { /* offline: keep cached */ });
     } else {
       show(tab);

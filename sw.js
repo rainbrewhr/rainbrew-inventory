@@ -1,6 +1,6 @@
 /* Rainbrew service worker: the app shell loads instantly from cache and refreshes in the background.
    Database traffic (supabase.co) is never cached here. */
-const V = 'rb-v21';
+const V = 'rb-v22';
 const SHELL = ['index.html', 'manifest.webmanifest', 'admin.html', 'stockkeeper.html', 'procurement.html', 'request.html', 'style.css', 'app.js', 'extras.js', 'config.js', 'vendor/supabase.js', 'icon-192.png', 'app-icon-192.png', 'app-favicon-32.png', 'app-apple-180.png'];
 
 self.addEventListener('install', e => {
@@ -16,5 +16,13 @@ self.addEventListener('fetch', e => {
     const hit = await c.match(req, { ignoreSearch: true });
     const net = fetch(req).then(r => { if (r.ok) c.put(req, r.clone()); return r; }).catch(() => hit);
     return hit || net;
+  }));
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    for (const c of list) { if ('focus' in c) { c.navigate && c.navigate('./#stock'); return c.focus(); } }
+    return self.clients.openWindow('./#stock');
   }));
 });
