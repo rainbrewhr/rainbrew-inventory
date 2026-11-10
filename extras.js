@@ -228,7 +228,7 @@
     var all = S.items.filter(function (i) { return i.active; });
     var nsel = function () { return Object.keys(st.sel).length; };
     function alt(i) { return [sm[i.alt_supplier_1_id], sm[i.alt_supplier_2_id]].filter(Boolean).join(', '); }
-    st.view = st.view || (nsel() ? 'list' : 'pick');
+    st.view = 'pick'; // always open on the full product list; "To buy" is one tap away
     st.pst = st.pst || ''; st.sort = st.sort || '';
 
     box.innerHTML = '<div class="card"><div class="row"><h2 class="grow">Buy list</h2><span id="bact" class="row"></span></div>' +
@@ -521,6 +521,7 @@
   };
 
   /* ---------- Items (filters, health check, add item with opening balance, full editor) ---------- */
+  function icon_info() { return R.icon('info', 'sm'); }
   V.items = async function (box) {
     await R.loadCatalog(true);
     var res = await Promise.all([R.suppliers(), q(sb.from('locations').select('name,type,active').order('name')), q(sb.from('profiles').select('name,role,station,approved,active'))]);
@@ -537,44 +538,102 @@
       ['neg', 'Items with negative stock', act_.filter(function (i) { return Number(i.current_stock) < 0; }).length]];
     var pend = people.filter(function (p) { return !p.approved; }).length, nost = people.filter(function (p) { return p.active && p.approved && (p.role === 'Station Staff' || p.role === 'Requester') && !p.station; }).map(function (p) { return p.name; });
     var NEED = { nosup: function (i) { return !i.supplier_id; }, noreorder: function (i) { return i.reorder_point == null; }, nocrit: function (i) { return i.critical_level == null; }, nopar: function (i) { return i.par_target == null; }, noloc: function (i) { return !(i.stocked_at || []).length; }, neg: function (i) { return Number(i.current_stock) < 0; }, inactive: function (i) { return !i.active; } };
-    box.innerHTML = '<div class="card"><h2>Data health</h2>' + checks.map(function (c) { return '<div class="row" style="padding:3px 0"><span class="grow">' + esc(c[1]) + '</span>' + (c[2] ? '<button class="btn alt sm" data-need="' + c[0] + '">' + c[2] + ' — show</button>' : '<span class="pill OK">OK</span>') + '</div>'; }).join('') +
-      '<div class="row" style="padding:3px 0"><span class="grow">Accounts waiting for approval</span>' + (pend ? '<span class="pill Pending">' + pend + ' — see People</span>' : '<span class="pill OK">OK</span>') + '</div>' +
-      '<div class="row" style="padding:3px 0"><span class="grow">Station staff / requesters without a station</span>' + (nost.length ? '<span class="pill Pending">' + esc(nost.join(', ')) + '</span>' : '<span class="pill OK">OK</span>') + '</div></div>' +
+    var COLS = [
+      { f: 'name', h: 'Item', w: 240, k: 'txt' }, { f: 'current_stock', h: 'In stock', w: 84, k: 'ro', num: 1 }, { f: 'category', h: 'Category', w: 160, k: 'txt' }, { f: 'unit', h: 'Unit', w: 90, k: 'unit' },
+      { f: 'supplier_id', h: 'Supplier', w: 180, k: 'sup' }, { f: 'purchase_unit', h: 'Buy unit', w: 100, k: 'txt' }, { f: 'order_multiple', h: 'Order in', w: 90, k: 'num', num: 1 }, { f: 'lead_time_days', h: 'Lead days', w: 90, k: 'num', num: 1 },
+      { f: 'reorder_point', h: 'Reorder at', w: 100, k: 'num', num: 1 }, { f: 'critical_level', h: 'Critical at', w: 100, k: 'num', num: 1 }, { f: 'par_target', h: 'PAR', w: 90, k: 'num', num: 1 },
+      { f: 'alt_supplier_1_id', h: 'Alt supplier 1', w: 170, k: 'sup' }, { f: 'alt_supplier_2_id', h: 'Alt supplier 2', w: 170, k: 'sup' }, { f: 'stocked_at', h: 'Stock room', w: 170, k: 'arr' }, { f: 'used_by', h: 'Used by', w: 190, k: 'arr' },
+      { f: 'pack_conversion', h: 'Pack / conversion', w: 150, k: 'txt' }, { f: 'notes', h: 'Notes', w: 220, k: 'txt' }, { f: 'active', h: 'On', w: 60, k: 'chk' }];
+    var notes = [];
+    if (pend) notes.push(pend + ' account(s) waiting for approval — see People');
+    if (nost.length) notes.push('No station set for: ' + nost.join(', '));
+    var needLabel = function (k, t) { var n = (checks.filter(function (c) { return c[0] === k; })[0] || [0, 0, 0])[2]; return { value: k, label: t + (n ? ' (' + n + ')' : '') }; };
+    box.innerHTML = (notes.length ? '<div class="card note">' + icon_info() + '<span>' + esc(notes.join(' · ')) + '</span></div>' : '') + '<div class="tools2">' +
       '<details class="card"><summary><b>Add item</b></summary><div class="row" style="margin-top:8px"><input id="an" class="grow" placeholder="Item name"><input id="ac" list="cl" class="grow" placeholder="Category"><select id="au" style="max-width:110px">' + opts(UNITS, '', 'Unit') + '</select></div>' +
       '<div class="row" style="margin-top:8px"><input id="al" list="ll" class="grow" placeholder="Stock room / location (comma separated)"><input id="as" list="sl" class="grow" placeholder="Used by stations (comma separated)"></div>' +
       '<div class="row" style="margin-top:8px"><select id="ap" class="grow sup-sel">' + R.supOptions(sups, '', 'Supplier') + '</select><input id="ab" style="max-width:110px" placeholder="Buy unit"><input id="ak" style="max-width:130px" placeholder="Pack / conversion"></div>' +
       '<div class="row" style="margin-top:8px"><input id="ar" type="number" step="any" placeholder="Reorder at"><input id="ax" type="number" step="any" placeholder="Critical at"><input id="ag" type="number" step="any" placeholder="PAR / target"><input id="ao" type="number" step="any" placeholder="Opening stock"></div>' +
       '<div style="margin-top:10px"><button class="btn" id="aadd">Add item</button></div><datalist id="cl">' + cats().map(function (c) { return '<option value="' + esc(c) + '">'; }).join('') + '</datalist><datalist id="ll">' + locs.filter(function (l) { return l.type === 'Stock Room'; }).map(function (l) { return '<option value="' + esc(l.name) + '">'; }).join('') + '</datalist><datalist id="sl">' + locs.filter(function (l) { return l.type === 'Station'; }).map(function (l) { return '<option value="' + esc(l.name) + '">'; }).join('') + '</datalist></details>' +
       '<details class="card"><summary><b>Suppliers (' + sups.length + ')</b></summary><div class="row" style="margin:8px 0"><input id="sn" class="grow" placeholder="New supplier name"><button class="btn alt" id="sadd">Add supplier</button></div><div class="tbl"><table><thead><tr><th>Supplier</th><th class="num">Items</th><th></th></tr></thead><tbody id="sl2">' +
-        sups.map(function (sp) { var n = S.items.filter(function (i) { return i.supplier_id === sp.id || i.alt_supplier_1_id === sp.id || i.alt_supplier_2_id === sp.id; }).length; return '<tr data-sid="' + sp.id + '"><td><input data-sf value="' + esc(sp.name) + '"></td><td class="num">' + n + '</td><td>' + (n ? '' : '<button class="btn alt sm" data-sdel>Delete</button>') + '</td></tr>'; }).join('') + '</tbody></table></div></details>' +
+        sups.map(function (sp) { var n = S.items.filter(function (i) { return i.supplier_id === sp.id || i.alt_supplier_1_id === sp.id || i.alt_supplier_2_id === sp.id; }).length; return '<tr data-sid="' + sp.id + '"><td><input data-sf value="' + esc(sp.name) + '"></td><td class="num">' + n + '</td><td>' + (n ? '' : '<button class="btn alt sm" data-sdel>Delete</button>') + '</td></tr>'; }).join('') + '</tbody></table></div></details></div>' +
       fbar([{ t: 's', k: 'q', ph: 'Search items…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'sup', ph: 'All suppliers', o: supOpts },
-        { t: 'c', k: 'need', ph: 'All items', o: [{ value: 'nosup', label: 'No supplier' }, { value: 'noreorder', label: 'No reorder point' }, { value: 'nocrit', label: 'No critical level' }, { value: 'nopar', label: 'No PAR' }, { value: 'noloc', label: 'No location' }, { value: 'neg', label: 'Negative stock' }, { value: 'inactive', label: 'Inactive' }] }], st) +
-      '<div class="card tbl"><p class="muted" id="icount"></p><table class="fx items"><colgroup><col style="width:21%"><col style="width:13%"><col style="width:8%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:5%"></colgroup><thead><tr><th>Item</th><th>Supplier</th><th>Buy unit</th><th class="num">Lead days</th><th class="num">Order in</th><th class="num">Reorder at</th><th class="num">Critical at</th><th class="num">PAR</th><th>On</th></tr></thead><tbody id="it"></tbody></table></div>';
-    function numIn(i, f) { return '<td class="num"><input type="number" min="0" step="any" data-f="' + f + '" value="' + esc(i[f] == null ? '' : i[f]) + '" aria-label="' + f.replace(/_/g, ' ') + '"></td>'; }
+        { t: 'c', k: 'need', ph: 'All items', o: [needLabel('nosup', 'No supplier'), needLabel('noreorder', 'No reorder point'), needLabel('nocrit', 'No critical level'), needLabel('nopar', 'No PAR'), needLabel('noloc', 'No location'), needLabel('neg', 'Negative stock'), { value: 'inactive', label: 'Inactive' }] }], st) +
+      '<p class="muted" id="ihint" style="margin:0 0 8px"><span id="icount"></span> · Click a cell and type. <b>Tab</b> moves right, <b>Enter</b> moves down, <b>Ctrl+D</b> fills down, and you can paste cells copied from Google Sheets. Changes save by themselves. <span id="isave" class="isave"></span></p>' +
+      '<div class="sheet-wrap"><table class="sheet items"><colgroup>' + COLS.map(function (c) { return '<col style="width:' + c.w + 'px">'; }).join('') + '</colgroup><thead><tr>' + COLS.map(function (c) { return '<th' + (c.num ? ' class="num"' : '') + '>' + esc(c.h) + '</th>'; }).join('') + '</tr></thead><tbody id="it"></tbody></table></div>';
+    var pendingSaves = 0;
+    function status(t, cls) { var el = $('#isave', box); if (el) { el.textContent = t; el.className = 'isave ' + (cls || ''); } }
+    function cell(i, c) {
+      var v = i[c.f], lab = ' aria-label="' + esc(c.h) + '"';
+      if (c.k === 'ro') return '<td class="num ro" data-label="' + esc(c.h) + '">' + fmt(v) + '</td>';
+      if (c.k === 'chk') return '<td class="ck" data-label="' + esc(c.h) + '"><input type="checkbox" data-f="' + c.f + '"' + (v ? ' checked' : '') + lab + '></td>';
+      if (c.k === 'unit') return '<td data-label="Unit"><select data-f="unit"' + lab + '>' + opts(UNITS.indexOf(v) >= 0 || !v ? UNITS : UNITS.concat([v]), v || '', '—') + '</select></td>';
+      if (c.k === 'sup') return '<td data-label="' + esc(c.h) + '"><select data-f="' + c.f + '" class="sup-sel"' + lab + '>' + R.supOptions(S.suppliers, v || '', '—') + '</select></td>';
+      if (c.k === 'arr') return '<td data-label="' + esc(c.h) + '"><input data-f="' + c.f + '" data-arr list="' + (c.f === 'stocked_at' ? 'll' : 'sl') + '" value="' + esc((v || []).join(', ')) + '"' + lab + '></td>';
+      if (c.k === 'num') return '<td class="num" data-label="' + esc(c.h) + '"><input data-f="' + c.f + '" data-num inputmode="decimal" autocomplete="off" value="' + esc(v == null ? '' : v) + '"' + lab + '></td>';
+      return '<td data-label="' + esc(c.h) + '"><input data-f="' + c.f + '"' + (c.f === 'category' ? ' list="cl"' : '') + ' autocomplete="off" value="' + esc(v || '') + '"' + lab + '></td>';
+    }
     function draw() {
       var list = S.items.filter(function (i) { if (st.need === 'inactive') return !i.active && hit(i, st); return (st.need ? NEED[st.need](i) && i.active : i.active) && hit(i, st); });
       $('#icount', box).textContent = list.length + ' item(s)';
-      $('#it', box).innerHTML = list.map(function (i) {
-        return '<tr data-id="' + i.id + '"><td><input data-f="name" value="' + esc(i.name) + '"><div class="row" style="margin-top:4px;flex-wrap:nowrap"><input data-f="category" list="cl" value="' + esc(i.category || '') + '" placeholder="Category" style="flex:1 1 0;min-width:0"><select data-f="unit" style="flex:0 0 38%;min-width:0">' + opts(UNITS, i.unit || '', '—') + '</select></div><div class="muted">stock ' + fmt(i.current_stock) + ' · <a href="#" data-more>more…</a></div></td>' +
-          '<td><select data-f="supplier_id" class="sup-sel">' + R.supOptions(S.suppliers, i.supplier_id || '', '—') + '</select></td><td><input data-f="purchase_unit" value="' + esc(i.purchase_unit || '') + '"></td>' +
-          numIn(i, 'lead_time_days') + numIn(i, 'order_multiple') + numIn(i, 'reorder_point') + numIn(i, 'critical_level') + numIn(i, 'par_target') + '<td><input type="checkbox" data-f="active"' + (i.active ? ' checked' : '') + '></td></tr>' +
-          '<tr class="more hide" data-for="' + i.id + '"><td colspan="9"><div class="row"><label class="grow" style="margin:0">Stock room / location<input data-f="stocked_at" data-arr list="ll" value="' + esc((i.stocked_at || []).join(', ')) + '"></label><label class="grow" style="margin:0">Used by stations<input data-f="used_by" data-arr list="sl" value="' + esc((i.used_by || []).join(', ')) + '"></label></div>' +
-          '<div class="row"><label class="grow" style="margin:0">Alt supplier 1<select data-f="alt_supplier_1_id" class="sup-sel">' + R.supOptions(S.suppliers, i.alt_supplier_1_id || '', '—') + '</select></label><label class="grow" style="margin:0">Alt supplier 2<select data-f="alt_supplier_2_id" class="sup-sel">' + R.supOptions(S.suppliers, i.alt_supplier_2_id || '', '—') + '</select></label><label class="grow" style="margin:0">Pack / conversion<input data-f="pack_conversion" value="' + esc(i.pack_conversion || '') + '"></label></div><label>Notes<input data-f="notes" value="' + esc(i.notes || '') + '"></label></td></tr>';
-      }).join('') || '<tr><td colspan="9" class="muted">No items match.</td></tr>';
+      $('#it', box).innerHTML = list.map(function (i) { return '<tr data-id="' + i.id + '">' + COLS.map(function (c) { return cell(i, c); }).join('') + '</tr>'; }).join('') || '<tr><td colspan="' + COLS.length + '" class="muted" style="padding:14px">No items match.</td></tr>';
     }
     wire(box, st, draw); draw();
     box.querySelectorAll('[data-need]').forEach(function (b) { b.onclick = function () { st.need = b.dataset.need; $('[data-k=need]', box).value = st.need; draw(); $('#it', box).scrollIntoView({ behavior: 'smooth' }); }; });
-    $('#it', box).addEventListener('click', function (e) {
-      var m = e.target.closest('[data-more]'); if (!m) return; e.preventDefault();
-      var row = m.closest('tr').nextElementSibling; row.classList.toggle('hide');
-    });
-    $('#it', box).addEventListener('change', function (e) {
+    var tb = $('#it', box);
+    function save(id, patch, el) {
+      el.classList.remove('bad'); pendingSaves++; status('Saving…', '');
+      sb.from('items').update(patch).eq('id', id).then(function (res) {
+        pendingSaves--;
+        if (res.error) { el.classList.add('bad'); status(res.error.message, 'err'); toast(res.error.message, true); return; }
+        var it = S.map.get(id); if (it) Object.assign(it, patch);
+        R.markDirty(); if (!pendingSaves) status('All changes saved', 'ok');
+      });
+    }
+    tb.addEventListener('change', function (e) {
       var el = e.target, f = el.dataset.f; if (!f) return;
-      var tr = el.closest('tr'), id = tr.dataset.id || tr.dataset.for;
-      var v = f === 'active' ? el.checked : el.hasAttribute('data-arr') ? el.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean) : (el.value === '' ? null : el.type === 'number' ? +el.value : el.value);
-      if (f === 'name') v = (v || '').toUpperCase();
-      var patch = {}; patch[f] = v;
-      sb.from('items').update(patch).eq('id', id).then(function (r) { if (r.error) return toast(r.error.message, true); toast('Saved'); R.markDirty(); R.loadCatalog(true); });
+      var id = el.closest('tr').dataset.id, v;
+      if (f === 'active') v = el.checked;
+      else if (el.hasAttribute('data-arr')) v = el.value.split(',').map(function (x) { return x.trim().toUpperCase(); }).filter(Boolean);
+      else if (el.hasAttribute('data-num')) {
+        var t = el.value.trim().replace(/,/g, '');
+        if (t === '') v = null; else { v = Number(t); if (!isFinite(v) || v < 0) { el.classList.add('bad'); status('"' + el.value + '" is not a number', 'err'); return; } }
+      } else { v = el.value === '' ? null : el.value; if (f === 'name') { v = (v || '').trim().toUpperCase(); if (!v) { el.classList.add('bad'); status('An item needs a name', 'err'); return; } el.value = v; } }
+      var patch = {}; patch[f] = v; save(id, patch, el);
+    });
+    function cellAt(tr, col) { var td = tr && tr.children[col]; return td && td.querySelector('input:not([type=checkbox]),select,input[type=checkbox]'); }
+    function colOf(el) { return [].indexOf.call(el.closest('tr').children, el.closest('td')); }
+    function go(el, tr) { var n = cellAt(tr, colOf(el)); if (n) { n.focus(); if (n.select && n.tagName === 'INPUT' && n.type !== 'checkbox') n.select(); } }
+    tb.addEventListener('keydown', function (e) {
+      var el = e.target; if (!el.dataset || !el.dataset.f) return; var tr = el.closest('tr');
+      if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); go(el, e.shiftKey ? tr.previousElementSibling : tr.nextElementSibling); }
+      else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && el.tagName === 'INPUT' && el.type !== 'checkbox') { e.preventDefault(); go(el, e.key === 'ArrowDown' ? tr.nextElementSibling : tr.previousElementSibling); }
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault(); var above = cellAt(tr.previousElementSibling, colOf(el)); if (!above || el.readOnly) return;
+        if (el.type === 'checkbox') el.checked = above.checked; else el.value = above.value;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+    function setCell(el, val) {
+      val = String(val == null ? '' : val).trim();
+      if (el.tagName === 'SELECT') {
+        var opt = [].filter.call(el.options, function (o) { return o.value !== '__new__' && (o.text.trim().toUpperCase() === val.toUpperCase() || o.value === val); })[0];
+        if (!opt && val !== '') { status('"' + val + '" is not in the list for ' + el.getAttribute('aria-label'), 'err'); return; }
+        el.value = opt ? opt.value : '';
+      } else if (el.type === 'checkbox') el.checked = /^(true|yes|y|1|x|on)$/i.test(val);
+      else el.value = val;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    tb.addEventListener('paste', function (e) {
+      var el = e.target.closest ? e.target.closest('[data-f]') : null; if (!el) return;
+      var txt = (e.clipboardData || window.clipboardData).getData('text').replace(/\r/g, '').replace(/\n$/, '');
+      if (txt.indexOf('\t') < 0 && txt.indexOf('\n') < 0) return;
+      e.preventDefault();
+      var col = colOf(el), tr = el.closest('tr');
+      txt.split('\n').forEach(function (line) {
+        if (!tr) return;
+        line.split('\t').forEach(function (val, k) { var c = cellAt(tr, col + k); if (c && !c.readOnly) setCell(c, val); });
+        tr = tr.nextElementSibling;
+      });
     });
     $('#aadd', box).onclick = function (e) {
       act(e.currentTarget, async function () {
