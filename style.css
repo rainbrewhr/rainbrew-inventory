@@ -476,3 +476,15 @@ body.side-min nav.tabs button .badge.hide{display:none}
 .lbtns{display:inline-flex;gap:2px;justify-content:flex-end;width:100%}
 .lbtns .icon-btn{width:34px;height:34px}
 #sb td.hm{white-space:nowrap}
+
+/* ---------- stock alerts ---------- */
+.icon-btn.bell{position:relative}
+.bell-n{position:absolute;top:1px;right:0;min-width:19px;height:19px;padding:0 5px;border-radius:999px;background:var(--crit);color:#fff;font:700 11.5px var(--sans);font-style:normal;display:grid;place-items:center;box-shadow:0 0 0 2px var(--bg)}
+.bell-n.warn{background:var(--warn)}
+.alist{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden;background:var(--panel)}
+.arow{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:11px 14px;min-height:52px;cursor:pointer;font:inherit;color:inherit}
+.arow:last-child{border:0}.arow:hover{background:var(--panel2)}
+.arow b{display:block;font-weight:600}.arow small{display:block;color:var(--mute);font-size:13px;margin-top:1px}
+.adot{width:10px;height:10px;border-radius:50%;flex:none}.adot.crit{background:var(--crit)}.adot.warn{background:var(--warn)}
+.arow .grow{min-width:0}
+@media (max-width:767px){.filters select[data-k=sort]{grid-column:1/-1}.card-head h2{font-size:17px!important;white-space:nowrap}}
