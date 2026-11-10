@@ -475,3 +475,4 @@ body.side-min nav.tabs button .badge.hide{display:none}
 
 .lbtns{display:inline-flex;gap:2px;justify-content:flex-end;width:100%}
 .lbtns .icon-btn{width:34px;height:34px}
+#sb td.hm{white-space:nowrap}
