@@ -225,7 +225,7 @@ table.fx td,table.fx th{overflow-wrap:anywhere;word-break:break-word}
 .pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
 .pill.OK,.pill.Released,.pill.Received{background:var(--okbg);color:var(--ok)}
 .pill.LOW,.pill.Partial,.pill.Pending{background:var(--warnbg);color:var(--warn)}
-.pill.Cancelled{background:var(--panel2);color:var(--mute)}
+.pill.EMPTY,.pill.Cancelled{background:var(--panel2);color:var(--mute)}
 .pill.CRITICAL,.pill.Rejected{background:var(--critbg);color:var(--crit)}
 .level{height:6px;border-radius:999px;background:var(--panel2);overflow:hidden;min-width:70px}.level i{display:block;height:100%;border-radius:999px}
 

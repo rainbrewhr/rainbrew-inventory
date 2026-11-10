@@ -133,7 +133,7 @@
     if (r.error) throw new Error(r.error.message);
     return r.data;
   }
-  function setItems(rows) { rows.forEach(function (r) { if (Number(r.current_stock) <= 0) r.status = 'CRITICAL'; }); S.items = rows; S.map = new Map(rows.map(function (r) { return [r.id, r]; })); }
+  function setItems(rows) { rows.forEach(function (r) { if (Number(r.current_stock) <= 0) r.status = (r.ever_stocked === false && r.reorder_point == null && r.critical_level == null) ? 'EMPTY' : 'CRITICAL'; }); S.items = rows; S.map = new Map(rows.map(function (r) { return [r.id, r]; })); }
   function takeNav() { var p = S.navParams || {}; S.navParams = null; return p; }
   var catalogInflight = null;
   // force=true means "make sure this is current": it still skips the network when the list was fetched a few seconds ago and nothing was written since.
@@ -164,7 +164,8 @@
       return '<option value="' + esc(v) + '"' + (v === sel ? ' selected' : '') + '>' + esc(l) + '</option>';
     }).join('');
   }
-  function pill(s) { return '<span class="pill ' + esc(s) + '">' + esc(s) + '</span>'; }
+  var PILL_LABEL = { EMPTY: 'Not stocked' };
+  function pill(s) { return '<span class="pill ' + esc(s) + '">' + esc(PILL_LABEL[s] || s) + '</span>'; }
   function node(html) { var d = document.createElement('div'); d.innerHTML = html; return d; }
 
   /* ---------- supplier dropdowns with "add new supplier" ---------- */
@@ -794,8 +795,9 @@
   async function vDash(box) {
     await loadCatalog();
     var items = S.items.filter(function (i) { return i.active; });
-    var counts = { OK: 0, LOW: 0, CRITICAL: 0 };
-    items.forEach(function (i) { counts[i.status === 'LOW' ? 'LOW' : i.status === 'CRITICAL' ? 'CRITICAL' : 'OK'] += 1; });
+    var counts = { OK: 0, LOW: 0, CRITICAL: 0, EMPTY: 0 };
+    items.forEach(function (i) { counts[counts[i.status] !== undefined ? i.status : 'OK'] += 1; });
+    var SEGS = [['OK', 'In stock', 'var(--ok)'], ['LOW', 'Low stock', 'var(--warn)'], ['CRITICAL', 'Critical / out', 'var(--crit)'], ['EMPTY', 'Not stocked', 'var(--line2)']];
     var need = items.filter(function (i) { return i.status === 'CRITICAL' || i.status === 'LOW'; }).sort(function (a, b) { return (a.status === 'CRITICAL' ? 0 : 1) - (b.status === 'CRITICAL' ? 0 : 1) || Number(a.current_stock) - Number(b.current_stock); });
     var ops = OPS.indexOf(role()) >= 0;
     var since = new Date(Date.now() - 13 * 864e5).toISOString();
@@ -813,7 +815,7 @@
     var dow = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
     // donut
     var C = 2 * Math.PI * 54, total = items.length || 1, off = 0;
-    var segs = [['OK', 'Optimal', 'var(--ok)'], ['LOW', 'Low', 'var(--warn)'], ['CRITICAL', 'Critical / out', 'var(--crit)']].map(function (x) {
+    var segs = SEGS.map(function (x) {
       var len = counts[x[0]] / total * C, el = counts[x[0]] ? '<circle class="seg" data-st="' + x[0] + '" cx="74" cy="74" r="54" fill="none" stroke="' + x[2] + '" stroke-width="16" stroke-dasharray="' + Math.max(len - 2, 0) + ' ' + C + '" stroke-dashoffset="' + (-off) + '" transform="rotate(-90 74 74)"><title>' + x[1] + ': ' + counts[x[0]] + '</title></circle>' : '';
       off += len; return el;
     }).join('');
@@ -829,7 +831,7 @@
       kpi('alert', 'crit', counts.CRITICAL, 'Critical or out of stock', 'data-stock="CRITICAL"') + kpi('alert', 'warn', counts.LOW, 'Running low', 'data-stock="LOW"') +
       (ops ? kpi('release', 'accent', openT, 'Station requests waiting', 'data-go="release"') + kpi('buy', 'teal', openP, 'Buy requests open', 'data-go="buy"') : kpi('done', 'ok', counts.OK, 'Items in good supply', 'data-stock="OK"') + kpi('stock', 'teal', items.length, 'Items tracked', 'data-go="stock"')) +
       '<div class="card s4"><div class="card-head"><h2>Stock health</h2></div><div class="donut"><svg viewBox="0 0 148 148" role="img" aria-label="Stock health"><circle cx="74" cy="74" r="54" fill="none" stroke="var(--panel2)" stroke-width="16"/>' + segs + '<text class="mid" x="74" y="76" text-anchor="middle">' + items.length + '</text><text class="sub" x="74" y="92" text-anchor="middle">items</text></svg><div class="legend">' +
-      [['OK', 'Optimal', 'var(--ok)'], ['LOW', 'Low stock', 'var(--warn)'], ['CRITICAL', 'Critical / out', 'var(--crit)']].map(function (x) { return '<button data-stock="' + x[0] + '"><i style="background:' + x[2] + '"></i>' + x[1] + '<b>' + counts[x[0]] + '</b></button>'; }).join('') + '</div></div></div>' +
+      SEGS.map(function (x) { return '<button data-stock="' + x[0] + '"><i style="background:' + x[2] + '"></i>' + x[1] + '<b>' + counts[x[0]] + '</b></button>'; }).join('') + '</div></div></div>' +
       '<div class="card s8"><div class="card-head"><h2>Activity · last 14 days</h2></div><div class="bars" role="img" aria-label="Received and released lines per day">' +
       days.map(function (k) { var v = by[k]; return '<div class="col2" title="' + k + ': ' + v.in + ' received, ' + v.out + ' released"><div class="stack2"><span class="bar in" style="height:' + (v.in / peak * 100) + '%"></span><span class="bar out" style="height:' + (v.out / peak * 100) + '%"></span></div><small>' + dow[new Date(k + 'T12:00:00+08:00').getDay()] + '</small></div>'; }).join('') +
       '</div><div class="chart-legend"><span><i style="background:var(--teal)"></i>Received</span><span><i style="background:var(--accent)"></i>Released</span></div></div>' +
