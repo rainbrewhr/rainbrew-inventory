@@ -202,7 +202,6 @@
   };
 
   /* ---------- Buy list: see every product first, tick what needs buying, then work the list by supplier ---------- */
-  var BUY_HEAD = ['Item', 'In stock', 'Order qty', 'Unit', 'Alternative supplier', 'Actual bought', 'Request no.'], BUY_W = [24, 9, 11, 9, 18, 13, 16];
   var LIST_W = [26, 9, 14, 8, 19, 16, 8], PICK_W = [34, 10, 10, 12, 16, 18];
   function urg(i) { return i.status === 'CRITICAL' ? 0 : i.status === 'LOW' ? 1 : 2; }
   function ratio(i) { var r = Number(i.reorder_point); return r > 0 ? Number(i.current_stock) / r : 1e9; }
@@ -316,7 +315,7 @@
 
     /* ---- step 2: everything to buy. Staff purchase requests keep their own lines (never merged); your own ticks sit beside them ---- */
     var MODES = [['sup', 'By supplier'], ['all', 'One list'], ['req', 'By request']];
-    var COLDEF = { item: ['Item', 0], sup: ['Supplier', 0], stock: ['In stock', 1], qty: ['Order qty', 1], unit: ['Unit', 0], alt: ['Alternative supplier', 0], act: ['Actual bought', 1], rm: ['', 0] };
+    var COLDEF = { item: ['Item', 0], sup: ['Supplier', 0], stock: ['In stock', 1], qty: ['Order qty', 1], unit: ['Unit', 0], alt: ['Alternative supplier', 0], act: ['Actual bought qty', 1], rm: ['', 0] };
     var LAYOUT = { sup: [['item', 26], ['stock', 9], ['qty', 14], ['unit', 8], ['alt', 19], ['act', 16], ['rm', 8]], all: [['item', 23], ['sup', 14], ['stock', 8], ['qty', 14], ['unit', 7], ['alt', 15], ['act', 14], ['rm', 5]], req: [['item', 28], ['sup', 16], ['stock', 9], ['qty', 15], ['unit', 8], ['act', 16], ['rm', 8]] };
     function entries() {
       var out = [];
@@ -342,7 +341,6 @@
         var own = es.filter(function (e) { return !e.req; }); if (own.length) groups.push({ title: 'Added by procurement', sub: 'Ticked in All products', es: own, kind: 'own' });
       }
       var lay = LAYOUT[st.mode];
-      function reqNos(e) { return e.req ? e.req.id : ''; }
       function cellFor(c, e) {
         var i = e.item;
         if (c === 'item') return '<td>' + esc(i.name) + (e.req && st.mode !== 'req' ? '<div class="askb">' + esc(e.req.id) + ' · ' + esc(e.req.requester_name || 'staff') + '</div>' : '') + '</td>';
@@ -351,14 +349,14 @@
         if (c === 'qty') return '<td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-ek="' + e.key + '" value="' + esc(e.qty) + '" aria-label="Order qty"></td>';
         if (c === 'unit') return '<td>' + esc(R.unitFor(i)) + '</td>';
         if (c === 'alt') return '<td>' + esc(alt(i)) + '</td>';
-        if (c === 'act') return '<td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-act="' + e.key + '" value="' + esc(boughtOf(e)) + '" aria-label="Actual bought"></td>';
+        if (c === 'act') return '<td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-act="' + e.key + '" value="' + esc(boughtOf(e)) + '" aria-label="Actual bought qty"></td>';
         return '<td>' + (e.req ? '' : '<button class="icon-btn" data-un="' + i.id + '" aria-label="Remove from list" type="button">' + R.icon('x') + '</button>') + '</td>';
       }
       function textOf(c, e) { var i = e.item; return c === 'item' ? i.name : c === 'sup' ? (sm[i.supplier_id] || '') : c === 'stock' ? fmt(i.current_stock) : c === 'qty' ? fmt(e.qty) : c === 'unit' ? R.unitFor(i) : c === 'alt' ? alt(i) : c === 'act' ? boughtOf(e) : ''; }
       function docTable(ges, mode) {
-        var L = mode === 'sup' ? [['item', 24], ['stock', 9], ['qty', 11], ['unit', 9], ['alt', 18], ['act', 13], ['reqno', 16]] : mode === 'all' ? [['item', 20], ['sup', 13], ['stock', 7], ['qty', 9], ['unit', 7], ['alt', 15], ['act', 11], ['reqno', 18]] : [['item', 32], ['sup', 18], ['stock', 10], ['qty', 12], ['unit', 10], ['act', 18]];
-        var head = L.map(function (c) { return c[0] === 'reqno' ? 'Request no.' : COLDEF[c[0]][0]; });
-        var rows = ges.map(function (e) { return L.map(function (c) { return c[0] === 'reqno' ? reqNos(e) : textOf(c[0], e); }); });
+        var L = mode === 'sup' ? [['item', 28], ['stock', 10], ['qty', 12], ['unit', 10], ['alt', 22], ['act', 18]] : mode === 'all' ? [['item', 24], ['sup', 15], ['stock', 9], ['qty', 11], ['unit', 8], ['alt', 17], ['act', 16]] : [['item', 32], ['sup', 18], ['stock', 10], ['qty', 12], ['unit', 10], ['act', 18]];
+        var head = L.map(function (c) { return COLDEF[c[0]][0]; });
+        var rows = ges.map(function (e) { return L.map(function (c) { return textOf(c[0], e); }); });
         var num = []; L.forEach(function (c, k) { if (['stock', 'qty', 'act'].indexOf(c[0]) >= 0) num.push(k); });
         return table(head, rows, num, L.map(function (c) { return c[1]; }));
       }
@@ -398,7 +396,7 @@
       };
       $('#bact', box).innerHTML = '<button class="btn alt sm" id="bp">Print all</button><button class="btn alt sm" id="bc">CSV</button>';
       $('#bp', box).onclick = function () { if (!groups.length) return toast('Nothing to print yet', true); printHtml('Buy list', docFor(groups), 'A4'); };
-      $('#bc', box).onclick = function () { csv('buy-list-' + today() + '.csv', [['Request no.', 'Supplier', 'Item', 'In stock', 'Order qty', 'Unit', 'Alternative supplier', 'Actual bought']].concat(es.map(function (e) { return [reqNos(e), sm[e.item.supplier_id] || '', e.item.name, fmt(e.item.current_stock), fmt(e.qty), R.unitFor(e.item), alt(e.item), boughtOf(e)]; }))); };
+      $('#bc', box).onclick = function () { csv('buy-list-' + today() + '.csv', [['Supplier', 'Item', 'In stock', 'Order qty', 'Unit', 'Alternative supplier', 'Actual bought qty']].concat(es.map(function (e) { return [sm[e.item.supplier_id] || '', e.item.name, fmt(e.item.current_stock), fmt(e.qty), R.unitFor(e.item), alt(e.item), boughtOf(e)]; }))); };
       head();
     }
     function render() { $('#bact', box).innerHTML = ''; if (st.view === 'list') list(); else { $('#bn', box).textContent = 'Tick the products you need to buy yourself. Staff buy requests are already on the To buy list, each under its own request number.'; pick(); } head(); }
