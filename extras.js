@@ -111,14 +111,14 @@
     box.innerHTML = '<div class="card-head"><h2 style="font:600 18px var(--display)">Stock levels</h2><span class="sp"></span><button class="btn alt sm" id="sp">' + R.icon('print') + 'Print</button><button class="btn alt sm" id="sc">' + R.icon('receive') + 'CSV</button></div>' +
       '<div class="chips" id="chips"></div>' +
       fbar([{ t: 's', k: 'q', ph: 'Search by item name…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All locations', o: flat('stocked_at') }, { t: 'c', k: 'stn', ph: 'All stations', o: flat('used_by') },
-        { t: 'c', k: 'sup', ph: 'All suppliers', o: sups.map(function (s) { return { value: s.id, label: s.name }; }) }], st) +
+        { t: 'c', k: 'sup', ph: 'All suppliers', o: sups.map(function (s) { return { value: s.id, label: s.name }; }) }, { t: 'c', k: 'sort', ph: 'Sort: urgent first', o: SORT_OPTS }], st) +
       '<div class="card tbl" style="padding:6px 8px"><table><thead><tr><th>Item</th><th class="hm">Location</th><th class="num">Stock</th><th class="num hm">Reorder</th><th>Status</th><th></th></tr></thead><tbody id="sb"></tbody></table></div><p class="muted" id="sn" style="text-align:center"></p>';
     var list = [];
     function chips() {
       $('#chips', box).innerHTML = CH.map(function (c) { return '<button class="chip' + ((st.status || '') === c[0] ? ' on' : '') + '" data-ch="' + c[0] + '">' + (c[2] ? '<i style="background:' + c[2] + '"></i>' : '') + c[1] + ' <b>' + tally[c[0]] + '</b></button>'; }).join('');
     }
     function draw() {
-      list = S.items.filter(function (i) { return i.active && hit(i, st); });
+      list = S.items.filter(function (i) { return i.active && hit(i, st); }).sort(sorter(st.sort || 'urgency', sm));
       $('#sb', box).innerHTML = list.map(function (i) {
         var tone = i.status === 'CRITICAL' ? 'crit' : i.status === 'LOW' ? 'warn' : 'ok';
         return '<tr class="click" data-id="' + i.id + '"><td><div class="cell-name"><span class="ico ' + tone + '">' + R.icon('stock') + '</span><span><b>' + esc(i.name) + '</b><span>' + esc(i.category || '') + '</span></span></div></td><td class="hm">' + esc((i.stocked_at || []).join(' / ')) + '</td><td class="num">' + fmt(i.current_stock) + ' <span class="muted">' + esc(i.unit || '') + '</span></td><td class="num hm">' + fmt(i.reorder_point) + '</td><td>' + pill(i.status) + '</td><td style="width:28px;color:var(--line2)">' + R.icon('chevr', 'sm') + '</td></tr>';
@@ -181,44 +181,136 @@
     $('#pa', box).onclick = function () { printSlips(visible(), 'Open requests'); };
   };
 
-  /* ---------- Buy list (grouped by supplier; alternative supplier + actual bought; print) ---------- */
+  /* ---------- Buy list: see every product first, tick what needs buying, then work the list by supplier ---------- */
   var BUY_HEAD = ['Item', 'In stock', 'Order qty', 'Unit', 'Alternative supplier', 'Actual bought'], BUY_W = [30, 10, 12, 10, 24, 14];
+  var LIST_W = [26, 9, 14, 8, 19, 16, 8], PICK_W = [34, 10, 10, 12, 16, 18];
+  function urg(i) { return i.status === 'CRITICAL' ? 0 : i.status === 'LOW' ? 1 : 2; }
+  function ratio(i) { var r = Number(i.reorder_point); return r > 0 ? Number(i.current_stock) / r : 1e9; }
+  function byName(a, b) { return String(a.name).localeCompare(String(b.name)); }
+  function sorter(key, sm) {
+    var f = {
+      urgency: function (a, b) { return urg(a) - urg(b) || ratio(a) - ratio(b) || Number(a.current_stock) - Number(b.current_stock) || byName(a, b); },
+      low: function (a, b) { return Number(a.current_stock) - Number(b.current_stock) || byName(a, b); },
+      high: function (a, b) { return Number(b.current_stock) - Number(a.current_stock) || byName(a, b); },
+      name: byName,
+      cat: function (a, b) { return String(a.category || '~').localeCompare(String(b.category || '~')) || byName(a, b); },
+      sup: function (a, b) { return String((sm || {})[a.supplier_id] || '~').localeCompare(String((sm || {})[b.supplier_id] || '~')) || byName(a, b); }
+    };
+    return f[key] || f.urgency;
+  }
+  var SORT_OPTS = [{ value: 'low', label: 'Sort: stock, lowest first' }, { value: 'high', label: 'Sort: stock, highest first' }, { value: 'name', label: 'Sort: name A–Z' }, { value: 'cat', label: 'Sort: category' }, { value: 'sup', label: 'Sort: supplier' }];
   V.buy = async function (box) {
     await R.loadCatalog(true);
     var sups = await R.suppliers(), sm = supMap(), st = F.buy;
-    st.actual = st.actual || {};
     var purs = await q(R.requestSelect('Purchase'));
-    var rows = {};
-    S.items.filter(function (i) { return i.active && (i.status === 'LOW' || i.status === 'CRITICAL'); }).forEach(function (i) { rows[i.id] = { item: i, qty: R.suggested(i) }; });
+    var KEY = 'rb_buy_' + (S.user && S.user.id);
+    if (!st.loaded) {
+      st.loaded = true; st.sel = {}; st.auto = {}; st.actual = {}; st.view = '';
+      try { var sv = JSON.parse(localStorage.getItem(KEY) || '{}'); st.sel = sv.sel || {}; st.auto = sv.auto || {}; st.actual = sv.actual || {}; } catch (e) { /* start empty */ }
+    }
+    function persist() { try { localStorage.setItem(KEY, JSON.stringify({ sel: st.sel, auto: st.auto, actual: st.actual })); } catch (e) { /* storage unavailable */ } }
+    var asked = {};
     purs.forEach(function (p) {
       R.openLines(p).forEach(function (l) {
-        var it = S.map.get(l.item_id); if (!it) return;
-        var r = rows[it.id] || (rows[it.id] = { item: it, qty: 0 });
-        r.qty = Math.max(r.qty, Number(l.remaining_qty));
+        var a = asked[l.item_id] || (asked[l.item_id] = { qty: 0, who: [] });
+        a.qty += Number(l.remaining_qty); if (p.requester_name && a.who.indexOf(p.requester_name) < 0) a.who.push(p.requester_name);
       });
     });
-    var all = Object.keys(rows).map(function (k) { return rows[k]; });
+    function defQty(i) { return String(asked[i.id] ? asked[i.id].qty : R.suggested(i)); }
+    // staff buy requests land on the list by themselves (once per request), so nothing they ask for is missed
+    purs.forEach(function (p) {
+      if (st.auto[p.id]) return; st.auto[p.id] = 1;
+      R.openLines(p).forEach(function (l) { if (S.map.get(l.item_id)) st.sel[l.item_id] = String(asked[l.item_id].qty); });
+    });
+    Object.keys(st.sel).forEach(function (id) { var it = S.map.get(id); if (!it || !it.active) delete st.sel[id]; });
+    persist();
+    R.afterReceive = function (ids) { ids.forEach(function (id) { delete st.sel[id]; delete st.actual[id]; }); persist(); };
+    var all = S.items.filter(function (i) { return i.active; });
+    var nsel = function () { return Object.keys(st.sel).length; };
     function alt(i) { return [sm[i.alt_supplier_1_id], sm[i.alt_supplier_2_id]].filter(Boolean).join(', '); }
-    box.innerHTML = '<div class="card"><div class="row"><h2 class="grow">Buy list</h2><button class="btn alt sm" id="bp">Print all</button><button class="btn alt sm" id="bc">CSV</button></div><p class="muted" id="bn"></p></div>' +
-      fbar([{ t: 's', k: 'q', ph: 'Search item…' }, { t: 'c', k: 'sup', ph: 'All suppliers', o: sups.map(function (s) { return { value: s.id, label: s.name }; }) }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'status', ph: 'Any urgency', o: ['CRITICAL', 'LOW'] }], st) + '<div id="bg"></div>';
-    var shown = [];
-    function group() {
-      shown = all.filter(function (r) { return hit(r.item, st); });
-      var g = {}; shown.forEach(function (r) { var k = sm[r.item.supplier_id] || 'No supplier set'; (g[k] = g[k] || []).push(r); });
-      return g;
+    st.view = st.view || (nsel() ? 'list' : 'pick');
+    st.pst = st.pst || ''; st.sort = st.sort || '';
+
+    box.innerHTML = '<div class="card"><div class="row"><h2 class="grow">Buy list</h2><span id="bact" class="row"></span></div>' +
+      '<div class="seg" id="bseg"><button data-v="pick">All products</button><button data-v="list">To buy <b id="bnum"></b></button></div><p class="muted" id="bn" style="margin:10px 0 0"></p></div><div id="bbody"></div>';
+    var body = $('#bbody', box);
+    function head() {
+      $('#bnum', box).textContent = nsel();
+      box.querySelectorAll('#bseg button').forEach(function (b) { b.classList.toggle('on', b.dataset.v === st.view); });
     }
-    function bought(r) { return st.actual[r.item.id] == null ? '' : st.actual[r.item.id]; }
-    function rowsFor(rs) { return rs.map(function (r) { return [r.item.name, fmt(r.item.current_stock), fmt(r.qty), R.unitFor(r.item), alt(r.item), bought(r)]; }); }
-    function listText(name, rs) { return name + '\n' + rs.map(function (r) { return '- ' + r.item.name + ': ' + fmt(r.qty) + ' ' + R.unitFor(r.item); }).join('\n'); }
-    function draw() {
-      var g = group(), names = Object.keys(g).sort(), out = $('#bg', box); out.innerHTML = '';
-      $('#bn', box).textContent = shown.length + ' item(s) to buy from ' + names.length + ' supplier(s)';
-      if (!names.length) out.innerHTML = '<div class="card">' + R.ui.empty('buy', 'Nothing to buy right now', 'Items appear here when they run low or someone sends a buy request. Reorder levels are set in Manage › Items.') + '</div>';
+    $('#bseg', box).onclick = function (e) { var b = e.target.closest('button[data-v]'); if (b) { st.view = b.dataset.v; render(); } };
+
+    /* ---- step 1: every product, with filters and sorters ---- */
+    function pick() {
+      var tally = { '': all.length, CRITICAL: 0, LOW: 0, OK: 0, ASKED: 0 };
+      all.forEach(function (i) { tally[urg(i) === 0 ? 'CRITICAL' : urg(i) === 1 ? 'LOW' : 'OK'] += 1; if (asked[i.id]) tally.ASKED += 1; });
+      var CH = [['', 'All', null], ['CRITICAL', 'Critical / out', 'var(--crit)'], ['LOW', 'Low', 'var(--warn)'], ['OK', 'Optimal', 'var(--ok)'], ['ASKED', 'Asked by staff', 'var(--accent)']];
+      body.innerHTML = '<div class="chips" id="bch"></div>' +
+        fbar([{ t: 's', k: 'q', ph: 'Search item…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'sup', ph: 'All suppliers', o: sups.map(function (s) { return { value: s.id, label: s.name }; }) }, { t: 'c', k: 'sort', ph: 'Sort: urgent first', o: SORT_OPTS }], st) +
+        '<div class="card" style="padding:12px 16px"><div class="row" style="gap:8px"><button class="btn alt sm" id="bsl"></button><button class="btn alt sm" id="bss">Select all shown</button><button class="btn alt sm" id="bsc">Clear selection</button><span class="sp" style="flex:1"></span><button class="btn sm" id="bgo"></button></div></div>' +
+        '<div class="card tbl" style="padding:6px 8px"><table class="fx"><colgroup>' + PICK_W.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup><thead><tr><th>Item</th><th class="num">In stock</th><th class="num">Reorder at</th><th>Status</th><th>Supplier</th><th class="num">Order qty</th></tr></thead><tbody id="bp2"></tbody></table></div><p class="muted" id="bpn" style="text-align:center"></p>';
+      var shown = [];
+      function chips() { $('#bch', box).innerHTML = CH.map(function (c) { return '<button class="chip' + (st.pst === c[0] ? ' on' : '') + '" data-ch="' + c[0] + '">' + (c[2] ? '<i style="background:' + c[2] + '"></i>' : '') + c[1] + ' <b>' + tally[c[0]] + '</b></button>'; }).join(''); }
+      function row(i) {
+        var on = Object.prototype.hasOwnProperty.call(st.sel, i.id), a = asked[i.id];
+        return '<tr class="click' + (on ? ' sel' : '') + '" data-pick="' + i.id + '"><td><label class="pickc"><input type="checkbox"' + (on ? ' checked' : '') + ' aria-label="Select ' + esc(i.name) + '"><span class="cell-name"><span><b>' + esc(i.name) + '</b><span>' + esc(i.category || '') + '</span>' +
+          (a ? '<span class="askb">Asked by ' + esc(a.who.join(', ') || 'staff') + ' · ' + fmt(a.qty) + '</span>' : '') + '</span></span></label></td>' +
+          '<td class="num">' + fmt(i.current_stock) + ' <span class="muted">' + esc(i.unit || '') + '</span></td><td class="num">' + (i.reorder_point != null ? fmt(i.reorder_point) : '—') + '</td><td>' + pill(i.status) + '</td><td>' + esc(sm[i.supplier_id] || '—') + '</td>' +
+          '<td class="num">' + (on ? '<input type="number" min="0" step="any" inputmode="decimal" data-qty="' + i.id + '" value="' + esc(st.sel[i.id]) + '" aria-label="Order qty">' : '<span class="muted">—</span>') + '</td></tr>';
+      }
+      function draw() {
+        shown = all.filter(function (i) {
+          if (!hit(i, { q: st.q, cat: st.cat, sup: st.sup })) return false;
+          if (st.pst === 'ASKED') return !!asked[i.id];
+          if (st.pst) return (urg(i) === 0 ? 'CRITICAL' : urg(i) === 1 ? 'LOW' : 'OK') === st.pst;
+          return true;
+        }).sort(sorter(st.sort || 'urgency', sm));
+        $('#bp2', box).innerHTML = shown.map(row).join('') || '<tr><td colspan="6">' + R.ui.empty('search', 'No items match', 'Try a different search or clear a filter.') + '</td></tr>';
+        $('#bpn', box).textContent = shown.length + ' of ' + all.length + ' products shown';
+        var lowN = all.filter(function (i) { return urg(i) < 2; }).length;
+        $('#bsl', box).textContent = 'Select low & critical (' + lowN + ')';
+        $('#bgo', box).textContent = nsel() ? 'Review buy list (' + nsel() + ')' : 'Nothing selected yet';
+        $('#bgo', box).disabled = !nsel();
+        chips(); head();
+      }
+      function toggle(id, on) { if (on) st.sel[id] = st.sel[id] || defQty(S.map.get(id)); else delete st.sel[id]; persist(); }
+      body.onclick = function (e) {
+        var c = e.target.closest('[data-ch]'); if (c) { st.pst = c.dataset.ch; draw(); return; }
+        if (e.target.closest('.numstep,input[type=number]')) return;
+        var tr = e.target.closest('tr[data-pick]'); if (!tr) return;
+        var id = tr.dataset.pick, cb = $('input[type=checkbox]', tr);
+        var now = e.target === cb ? cb.checked : !Object.prototype.hasOwnProperty.call(st.sel, id);
+        toggle(id, now);
+        var fresh = document.createElement('tbody'); fresh.innerHTML = row(S.map.get(id));
+        tr.replaceWith(fresh.firstChild); $('#bgo', box).textContent = nsel() ? 'Review buy list (' + nsel() + ')' : 'Nothing selected yet'; $('#bgo', box).disabled = !nsel(); head();
+        if (now) { var qi = body.querySelector('input[data-qty="' + id + '"]'); if (qi) { qi.focus(); qi.select(); } }
+      };
+      body.addEventListener('input', function (e) { var el = e.target.closest('[data-qty]'); if (el) { st.sel[el.dataset.qty] = el.value; persist(); } });
+      $('#bsl', box).onclick = function () { all.filter(function (i) { return urg(i) < 2; }).forEach(function (i) { toggle(i.id, true); }); draw(); };
+      $('#bss', box).onclick = function () { shown.forEach(function (i) { toggle(i.id, true); }); draw(); };
+      $('#bsc', box).onclick = function () { st.sel = {}; persist(); draw(); };
+      $('#bgo', box).onclick = function () { st.view = 'list'; render(); };
+      wire(box, st, draw); draw();
+    }
+
+    /* ---- step 2: the chosen items, grouped by supplier ---- */
+    function list() {
+      var rows = Object.keys(st.sel).map(function (id) { return { item: S.map.get(id), qty: st.sel[id] }; }).filter(function (r) { return r.item; });
+      function group() { var g = {}; rows.forEach(function (r) { var k = sm[r.item.supplier_id] || 'No supplier set'; (g[k] = g[k] || []).push(r); }); return g; }
+      function bought(r) { return st.actual[r.item.id] == null ? '' : st.actual[r.item.id]; }
+      function rowsFor(rs) { return rs.map(function (r) { return [r.item.name, fmt(r.item.current_stock), fmt(r.qty), R.unitFor(r.item), alt(r.item), bought(r)]; }); }
+      function listText(name, rs) { return name + '\n' + rs.map(function (r) { return '- ' + r.item.name + ': ' + fmt(r.qty) + ' ' + R.unitFor(r.item); }).join('\n'); }
+      function buyDoc(pairs) { return docHead('Procurement Buy List', today()) + pairs.map(function (p) { return '<h2>' + esc(p[0]) + '</h2>' + table(BUY_HEAD, rowsFor(p[1]), [1, 2, 5], BUY_W); }).join('') + '<p class="sig">Prepared / checked by: ____________________</p>'; }
+      body.innerHTML = '<div id="bg"></div>';
+      var g = group(), names = Object.keys(g).sort(), out = $('#bg', box);
+      $('#bn', box).textContent = rows.length + ' item(s) to buy from ' + names.length + ' supplier(s)';
+      if (!names.length) out.innerHTML = '<div class="card">' + R.ui.empty('buy', 'Nothing chosen yet', 'Go to All products, tick what needs buying, then come back here to print or share the list.', '<button class="btn alt" id="bto" style="margin-top:14px">Choose items</button>') + '</div>';
+      var bto = $('#bto', box); if (bto) bto.onclick = function () { st.view = 'pick'; render(); };
       names.forEach(function (n) {
         var rs = g[n], c = document.createElement('div'); c.className = 'card';
-        c.innerHTML = '<div class="row"><h2 class="grow">' + esc(n) + '</h2><button class="btn alt sm" data-p>Print</button><button class="btn alt sm" data-c>Copy</button>' + (navigator.share ? '<button class="btn alt sm" data-sh>Share</button>' : '') + '<button class="btn alt sm" data-c>Copy</button><button class="btn sm" data-r>Receive delivery</button></div><div class="tbl"><table class="fx"><colgroup>' + BUY_W.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup><thead><tr>' +
-          BUY_HEAD.map(function (h, i) { return '<th' + ([1, 2, 5].indexOf(i) >= 0 ? ' class="num"' : '') + '>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-          rs.map(function (r) { var i = r.item; return '<tr class="click" data-item="' + i.id + '"><td>' + esc(i.name) + '</td><td class="num">' + fmt(i.current_stock) + '</td><td class="num">' + fmt(r.qty) + '</td><td>' + esc(R.unitFor(i)) + '</td><td>' + esc(alt(i)) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-act="' + i.id + '" value="' + esc(bought(r)) + '"></td></tr>'; }).join('') + '</tbody></table></div>';
+        c.innerHTML = '<div class="row"><h2 class="grow">' + esc(n) + '</h2><button class="btn alt sm" data-p>Print</button><button class="btn alt sm" data-c>Copy</button>' + (navigator.share ? '<button class="btn alt sm" data-sh>Share</button>' : '') + '<button class="btn sm" data-r>Receive delivery</button></div><div class="tbl"><table class="fx"><colgroup>' + LIST_W.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup><thead><tr>' +
+          BUY_HEAD.map(function (h, i) { return '<th' + ([1, 2, 5].indexOf(i) >= 0 ? ' class="num"' : '') + '>' + esc(h) + '</th>'; }).join('') + '<th></th></tr></thead><tbody>' +
+          rs.map(function (r) { var i = r.item, a = asked[i.id]; return '<tr class="click" data-item="' + i.id + '"><td>' + esc(i.name) + (a ? '<div class="askb">Asked by ' + esc(a.who.join(', ') || 'staff') + '</div>' : '') + '</td><td class="num">' + fmt(i.current_stock) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-qty="' + i.id + '" value="' + esc(r.qty) + '" aria-label="Order qty"></td><td>' + esc(R.unitFor(i)) + '</td><td>' + esc(alt(i)) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-act="' + i.id + '" value="' + esc(bought(r)) + '" aria-label="Actual bought"></td><td><button class="icon-btn" data-un="' + i.id + '" aria-label="Remove from list" type="button">' + R.icon('x') + '</button></td></tr>'; }).join('') + '</tbody></table></div>';
         $('[data-p]', c).onclick = function () { printHtml('Buy list ' + n, buyDoc([[n, rs]]), 'A4'); };
         $('[data-c]', c).onclick = function () { var t = listText(n, rs); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('Copied'); }, function () { R.ui.copy(t); }); };
         var sh = $('[data-sh]', c); if (sh) sh.onclick = function () { navigator.share({ title: 'Buy list · ' + n, text: listText(n, rs) }).catch(function () { /* cancelled */ }); };
@@ -229,17 +321,22 @@
         };
         out.appendChild(c);
       });
+      out.addEventListener('click', function (e) {
+        var u = e.target.closest('[data-un]'); if (u) { delete st.sel[u.dataset.un]; persist(); list(); head(); return; }
+        if (e.target.closest('input,button,select,a,.numstep')) return;
+        var tr = e.target.closest('tr[data-item]'); if (tr) R.openItem(tr.dataset.item);
+      });
+      out.addEventListener('input', function (e) {
+        var a = e.target.closest('[data-act]'); if (a) { st.actual[a.dataset.act] = a.value; persist(); return; }
+        var qn = e.target.closest('[data-qty]'); if (qn) { st.sel[qn.dataset.qty] = qn.value; persist(); }
+      });
+      $('#bact', box).innerHTML = '<button class="btn alt sm" id="bp">Print all</button><button class="btn alt sm" id="bc">CSV</button>';
+      $('#bp', box).onclick = function () { var gg = group(); printHtml('Buy list', buyDoc(Object.keys(gg).sort().map(function (n) { return [n, gg[n]]; })), 'A4'); };
+      $('#bc', box).onclick = function () { var gg = group(); csv('buy-list-' + today() + '.csv', [['Supplier'].concat(BUY_HEAD)].concat([].concat.apply([], Object.keys(gg).sort().map(function (n) { return rowsFor(gg[n]).map(function (r) { return [n].concat(r); }); })))); };
+      head();
     }
-    function buyDoc(pairs) {
-      return docHead('Procurement Buy List', today()) + pairs.map(function (p) {
-        return '<h2>' + esc(p[0]) + '</h2>' + table(BUY_HEAD, rowsFor(p[1]), [1, 2, 5], BUY_W);
-      }).join('') + '<p class="sig">Prepared / checked by: ____________________</p>';
-    }
-    $('#bg', box).addEventListener('click', function (e) { if (e.target.closest('input,button,select,a')) return; var tr = e.target.closest('tr[data-item]'); if (tr) R.openItem(tr.dataset.item); });
-    $('#bg', box).addEventListener('input', function (e) { var el = e.target.closest('[data-act]'); if (el) st.actual[el.dataset.act] = el.value; });
-    wire(box, st, draw); draw();
-    $('#bp', box).onclick = function () { var g = group(); printHtml('Buy list', buyDoc(Object.keys(g).sort().map(function (n) { return [n, g[n]]; })), 'A4'); };
-    $('#bc', box).onclick = function () { var g = group(); csv('buy-list-' + today() + '.csv', [['Supplier'].concat(BUY_HEAD)].concat([].concat.apply([], Object.keys(g).sort().map(function (n) { return rowsFor(g[n]).map(function (r) { return [n].concat(r); }); })))); };
+    function render() { $('#bact', box).innerHTML = ''; if (st.view === 'list') list(); else { $('#bn', box).textContent = 'Tick every product you need to buy. Staff buy requests are already ticked.'; pick(); } head(); }
+    render();
   };
 
   /* ---------- Count (stock room adjusts; stations are snapshot logs) ---------- */
@@ -248,25 +345,28 @@
     var sts = await R.stations(), st = F.count;
     box.innerHTML = '<div class="card"><h2>Stock count</h2><label>Where are you counting?</label><select id="cw">' + opts([{ value: '', label: 'Stock room (adjusts stock)' }].concat(sts.map(function (s) { return { value: s, label: s + ' (log only)' }; })), st.where || '') + '</select>' +
       '<p class="muted" id="ch"></p></div>' + fbar([{ t: 's', k: 'q', ph: 'Filter items…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All locations', o: flat('stocked_at') }], st) +
-      '<div class="card tbl"><table><thead><tr><th>Item</th><th class="num" id="sh">System</th><th class="num">Counted</th></tr></thead><tbody id="ct"></tbody></table></div><button class="btn" id="cgo">Post count</button>';
+      '<div class="card tbl"><table><thead><tr><th>Item</th><th class="num" id="sh">System</th><th class="num">Counted</th></tr></thead><tbody id="ct"></tbody></table></div><p class="muted" id="cn"></p><button class="btn" id="cgo">Post count</button>';
     var items = S.items.filter(function (i) { return i.active; });
     function station() { return $('#cw', box).value; }
+    st.counts = st.counts || {};
+    function bucket() { var k = station() || '_room'; return st.counts[k] || (st.counts[k] = {}); }
+    function tally() { var n = Object.keys(bucket()).length; $('#cn', box).textContent = n ? n + ' item(s) counted so far. They stay here while you search or filter.' : ''; }
     function draw() {
-      var s = station(), keep = {};
-      box.querySelectorAll('#ct input').forEach(function (inp) { if (inp.value !== '') keep[inp.dataset.id] = inp.value; });
+      var s = station(), keep = bucket();
       var list = items.filter(function (i) { return hit(i, st) && (!s || (i.used_by || []).indexOf(s) >= 0 || (i.used_by || []).indexOf('ALL') >= 0); });
       $('#sh', box).hidden = !!s;
       $('#ch', box).textContent = s ? 'Counts at a station are saved as a dated snapshot only. They do not change stock room quantities.' : 'Type the counted quantity for what you counted and leave the rest blank. Differences are posted as adjustments.';
       $('#ct', box).innerHTML = list.map(function (i) {
-        return '<tr><td>' + esc(i.name) + '<div class="muted">' + esc(i.unit || '') + ' · ' + esc((i.stocked_at || []).join(' / ')) + '</div></td>' + (s ? '' : '<td class="num">' + fmt(i.current_stock) + '</td>') + '<td class="num"' + (s ? ' colspan="2"' : '') + '><input type="number" min="0" step="any" inputmode="decimal" data-id="' + i.id + '" data-sys="' + i.current_stock + '" value="' + esc(keep[i.id] || '') + '" style="width:92px"></td></tr>';
+        return '<tr><td>' + esc(i.name) + '<div class="muted">' + esc(i.unit || '') + ' · ' + esc((i.stocked_at || []).join(' / ')) + '</div></td>' + (s ? '' : '<td class="num">' + fmt(i.current_stock) + '</td>') + '<td class="num"' + (s ? ' colspan="2"' : '') + '><input type="number" min="0" step="any" inputmode="decimal" data-id="' + i.id + '" data-sys="' + i.current_stock + '" value="' + esc(keep[i.id] == null ? '' : keep[i.id]) + '" style="width:92px"></td></tr>';
       }).join('') || '<tr><td class="muted">No items match.</td></tr>';
     }
     $('#cw', box).onchange = function () { st.where = station(); draw(); };
-    wire(box, st, draw); draw();
+    $('#ct', box).addEventListener('input', function (e) { var el = e.target.closest('input[data-id]'); if (!el) return; if (el.value === '') delete bucket()[el.dataset.id]; else bucket()[el.dataset.id] = el.value; tally(); });
+    wire(box, st, draw); draw(); tally();
     $('#cgo', box).onclick = function (e) {
       act(e.currentTarget, async function () {
         var s = station();
-        var ls = [].map.call(box.querySelectorAll('#ct input'), function (inp) { return inp.value === '' ? null : { item_id: inp.dataset.id, counted: +inp.value, diff: +inp.value - +inp.dataset.sys }; }).filter(Boolean);
+        var bk = bucket(), ls = Object.keys(bk).map(function (id) { var it = S.map.get(id); return it ? { item_id: id, counted: +bk[id], diff: +bk[id] - Number(it.current_stock) } : null; }).filter(Boolean);
         if (!ls.length) throw new Error('Enter at least one counted quantity');
         if (s) {
           if (!(await R.ui.confirm('Save a snapshot of ' + ls.length + ' item(s) at ' + s + '? This is a log only and does not change stock.', { title: 'Save station snapshot', ok: 'Save snapshot' }))) return;
@@ -279,7 +379,7 @@
           var id = await rpc('record_count', { p_lines: ls.map(function (l) { return { item_id: l.item_id, counted: l.counted }; }) });
           toast('Count posted · ' + id);
         }
-        await R.loadCatalog(true); R.show('count');
+        st.counts[s || '_room'] = {}; await R.loadCatalog(true); R.show('count');
       });
     };
   };
@@ -449,14 +549,14 @@
         sups.map(function (sp) { var n = S.items.filter(function (i) { return i.supplier_id === sp.id || i.alt_supplier_1_id === sp.id || i.alt_supplier_2_id === sp.id; }).length; return '<tr data-sid="' + sp.id + '"><td><input data-sf value="' + esc(sp.name) + '"></td><td class="num">' + n + '</td><td>' + (n ? '' : '<button class="btn alt sm" data-sdel>Delete</button>') + '</td></tr>'; }).join('') + '</tbody></table></div></details>' +
       fbar([{ t: 's', k: 'q', ph: 'Search items…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'sup', ph: 'All suppliers', o: supOpts },
         { t: 'c', k: 'need', ph: 'All items', o: [{ value: 'nosup', label: 'No supplier' }, { value: 'noreorder', label: 'No reorder point' }, { value: 'nocrit', label: 'No critical level' }, { value: 'nopar', label: 'No PAR' }, { value: 'noloc', label: 'No location' }, { value: 'neg', label: 'Negative stock' }, { value: 'inactive', label: 'Inactive' }] }], st) +
-      '<div class="card tbl"><p class="muted" id="icount"></p><table><thead><tr><th>Item</th><th>Supplier</th><th>Buy unit</th><th class="num">Lead d</th><th class="num">Order ×</th><th class="num">Reorder</th><th class="num">Critical</th><th class="num">PAR</th><th>On</th></tr></thead><tbody id="it"></tbody></table></div>';
-    function numIn(i, f) { return '<td class="num"><input type="number" min="0" step="any" data-f="' + f + '" value="' + esc(i[f] == null ? '' : i[f]) + '" style="width:74px"></td>'; }
+      '<div class="card tbl"><p class="muted" id="icount"></p><table class="fx items"><colgroup><col style="width:21%"><col style="width:13%"><col style="width:8%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:5%"></colgroup><thead><tr><th>Item</th><th>Supplier</th><th>Buy unit</th><th class="num">Lead days</th><th class="num">Order in</th><th class="num">Reorder at</th><th class="num">Critical at</th><th class="num">PAR</th><th>On</th></tr></thead><tbody id="it"></tbody></table></div>';
+    function numIn(i, f) { return '<td class="num"><input type="number" min="0" step="any" data-f="' + f + '" value="' + esc(i[f] == null ? '' : i[f]) + '" aria-label="' + f.replace(/_/g, ' ') + '"></td>'; }
     function draw() {
       var list = S.items.filter(function (i) { if (st.need === 'inactive') return !i.active && hit(i, st); return (st.need ? NEED[st.need](i) && i.active : i.active) && hit(i, st); });
       $('#icount', box).textContent = list.length + ' item(s)';
       $('#it', box).innerHTML = list.map(function (i) {
-        return '<tr data-id="' + i.id + '"><td><input data-f="name" value="' + esc(i.name) + '" style="min-width:170px"><div class="row" style="margin-top:4px"><input data-f="category" list="cl" value="' + esc(i.category || '') + '" placeholder="Category" style="width:130px"><select data-f="unit" style="width:84px">' + opts(UNITS, i.unit || '', '—') + '</select></div><div class="muted">stock ' + fmt(i.current_stock) + ' · <a href="#" data-more>more…</a></div></td>' +
-          '<td><select data-f="supplier_id" class="sup-sel" style="min-width:130px">' + R.supOptions(S.suppliers, i.supplier_id || '', '—') + '</select></td><td><input data-f="purchase_unit" value="' + esc(i.purchase_unit || '') + '" style="width:80px"></td>' +
+        return '<tr data-id="' + i.id + '"><td><input data-f="name" value="' + esc(i.name) + '"><div class="row" style="margin-top:4px;flex-wrap:nowrap"><input data-f="category" list="cl" value="' + esc(i.category || '') + '" placeholder="Category" style="flex:1 1 0;min-width:0"><select data-f="unit" style="flex:0 0 38%;min-width:0">' + opts(UNITS, i.unit || '', '—') + '</select></div><div class="muted">stock ' + fmt(i.current_stock) + ' · <a href="#" data-more>more…</a></div></td>' +
+          '<td><select data-f="supplier_id" class="sup-sel">' + R.supOptions(S.suppliers, i.supplier_id || '', '—') + '</select></td><td><input data-f="purchase_unit" value="' + esc(i.purchase_unit || '') + '"></td>' +
           numIn(i, 'lead_time_days') + numIn(i, 'order_multiple') + numIn(i, 'reorder_point') + numIn(i, 'critical_level') + numIn(i, 'par_target') + '<td><input type="checkbox" data-f="active"' + (i.active ? ' checked' : '') + '></td></tr>' +
           '<tr class="more hide" data-for="' + i.id + '"><td colspan="9"><div class="row"><label class="grow" style="margin:0">Stock room / location<input data-f="stocked_at" data-arr list="ll" value="' + esc((i.stocked_at || []).join(', ')) + '"></label><label class="grow" style="margin:0">Used by stations<input data-f="used_by" data-arr list="sl" value="' + esc((i.used_by || []).join(', ')) + '"></label></div>' +
           '<div class="row"><label class="grow" style="margin:0">Alt supplier 1<select data-f="alt_supplier_1_id" class="sup-sel">' + R.supOptions(S.suppliers, i.alt_supplier_1_id || '', '—') + '</select></label><label class="grow" style="margin:0">Alt supplier 2<select data-f="alt_supplier_2_id" class="sup-sel">' + R.supOptions(S.suppliers, i.alt_supplier_2_id || '', '—') + '</select></label><label class="grow" style="margin:0">Pack / conversion<input data-f="pack_conversion" value="' + esc(i.pack_conversion || '') + '"></label></div><label>Notes<input data-f="notes" value="' + esc(i.notes || '') + '"></label></td></tr>';
