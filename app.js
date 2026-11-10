@@ -788,7 +788,7 @@
     var lb = lineBuilder($('#lb', box), { stock: true, key: 'receive' });
     if (window.RB.prefill) {
       var pf = window.RB.prefill; window.RB.prefill = null;
-      $('#rs', box).value = pf.supplier || ''; lb.set(pf.lines);
+      $('#rs', box).value = pf.supplier || ''; lb.set(pf.lines); if (pf.ref && $('#rp', box).querySelector('option[value="' + pf.ref + '"]')) $('#rp', box).value = pf.ref;
     }
     $('#rp', box).onchange = function () {
       var p = purs.find(function (x) { return x.id === this.value; }, this);
