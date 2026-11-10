@@ -182,7 +182,7 @@
   };
 
   /* ---------- Buy list: see every product first, tick what needs buying, then work the list by supplier ---------- */
-  var BUY_HEAD = ['Item', 'In stock', 'Order qty', 'Unit', 'Alternative supplier', 'Actual bought'], BUY_W = [30, 10, 12, 10, 24, 14];
+  var BUY_HEAD = ['Item', 'In stock', 'Order qty', 'Unit', 'Alternative supplier', 'Actual bought', 'Request no.'], BUY_W = [24, 9, 11, 9, 18, 13, 16];
   var LIST_W = [26, 9, 14, 8, 19, 16, 8], PICK_W = [34, 10, 10, 12, 16, 18];
   function urg(i) { return i.status === 'CRITICAL' ? 0 : i.status === 'LOW' ? 1 : 2; }
   function ratio(i) { var r = Number(i.reorder_point); return r > 0 ? Number(i.current_stock) / r : 1e9; }
@@ -212,10 +212,12 @@
     var asked = {};
     purs.forEach(function (p) {
       R.openLines(p).forEach(function (l) {
-        var a = asked[l.item_id] || (asked[l.item_id] = { qty: 0, who: [] });
+        var a = asked[l.item_id] || (asked[l.item_id] = { qty: 0, who: [], reqs: [] });
         a.qty += Number(l.remaining_qty); if (p.requester_name && a.who.indexOf(p.requester_name) < 0) a.who.push(p.requester_name);
+        a.reqs.push({ id: p.id, who: p.requester_name || 'staff', qty: Number(l.remaining_qty) });
       });
     });
+    function askText(a) { return a.reqs.map(function (x) { return x.id + ' · ' + x.who + ' · ' + fmt(x.qty); }).join('  |  '); }
     function defQty(i) { return String(asked[i.id] ? asked[i.id].qty : R.suggested(i)); }
     // staff buy requests land on the list by themselves (once per request), so nothing they ask for is missed
     purs.forEach(function (p) {
@@ -254,7 +256,7 @@
       function row(i) {
         var on = Object.prototype.hasOwnProperty.call(st.sel, i.id), a = asked[i.id];
         return '<tr class="click' + (on ? ' sel' : '') + '" data-pick="' + i.id + '"><td><label class="pickc"><input type="checkbox"' + (on ? ' checked' : '') + ' aria-label="Select ' + esc(i.name) + '"><span class="cell-name"><span><b>' + esc(i.name) + '</b><span>' + esc(i.category || '') + '</span>' +
-          (a ? '<span class="askb">Asked by ' + esc(a.who.join(', ') || 'staff') + ' · ' + fmt(a.qty) + '</span>' : '') + '</span></span></label></td>' +
+          (a ? '<span class="askb">' + a.reqs.map(function (x) { return esc(x.id) + ' · ' + esc(x.who) + ' · ' + fmt(x.qty); }).join('<br>') + '</span>' : '') + '</span></span></label></td>' +
           '<td class="num">' + fmt(i.current_stock) + ' <span class="muted">' + esc(i.unit || '') + '</span></td><td class="num">' + (i.reorder_point != null ? fmt(i.reorder_point) : '—') + '</td><td>' + pill(i.status) + '</td><td>' + esc(sm[i.supplier_id] || '—') + '</td>' +
           '<td class="num">' + (on ? '<input type="number" min="0" step="any" inputmode="decimal" data-qty="' + i.id + '" value="' + esc(st.sel[i.id]) + '" aria-label="Order qty">' : '<span class="muted">—</span>') + '</td></tr>';
       }
@@ -298,8 +300,8 @@
       var rows = Object.keys(st.sel).map(function (id) { return { item: S.map.get(id), qty: st.sel[id] }; }).filter(function (r) { return r.item; });
       function group() { var g = {}; rows.forEach(function (r) { var k = sm[r.item.supplier_id] || 'No supplier set'; (g[k] = g[k] || []).push(r); }); return g; }
       function bought(r) { return st.actual[r.item.id] == null ? '' : st.actual[r.item.id]; }
-      function rowsFor(rs) { return rs.map(function (r) { return [r.item.name, fmt(r.item.current_stock), fmt(r.qty), R.unitFor(r.item), alt(r.item), bought(r)]; }); }
-      function listText(name, rs) { return name + '\n' + rs.map(function (r) { return '- ' + r.item.name + ': ' + fmt(r.qty) + ' ' + R.unitFor(r.item); }).join('\n'); }
+      function rowsFor(rs) { return rs.map(function (r) { return [r.item.name, fmt(r.item.current_stock), fmt(r.qty), R.unitFor(r.item), alt(r.item), bought(r), asked[r.item.id] ? asked[r.item.id].reqs.map(function (x) { return x.id; }).join(', ') : '']; }); }
+      function listText(name, rs) { return name + '\n' + rs.map(function (r) { return '- ' + r.item.name + ': ' + fmt(r.qty) + ' ' + R.unitFor(r.item) + (asked[r.item.id] ? ' (' + asked[r.item.id].reqs.map(function (x) { return x.id; }).join(', ') + ')' : ''); }).join('\n'); }
       function buyDoc(pairs) { return docHead('Procurement Buy List', today()) + pairs.map(function (p) { return '<h2>' + esc(p[0]) + '</h2>' + table(BUY_HEAD, rowsFor(p[1]), [1, 2, 5], BUY_W); }).join('') + '<p class="sig">Prepared / checked by: ____________________</p>'; }
       body.innerHTML = '<div id="bg"></div>';
       var g = group(), names = Object.keys(g).sort(), out = $('#bg', box);
@@ -309,8 +311,8 @@
       names.forEach(function (n) {
         var rs = g[n], c = document.createElement('div'); c.className = 'card';
         c.innerHTML = '<div class="row"><h2 class="grow">' + esc(n) + '</h2><button class="btn alt sm" data-p>Print</button><button class="btn alt sm" data-c>Copy</button>' + (navigator.share ? '<button class="btn alt sm" data-sh>Share</button>' : '') + '<button class="btn sm" data-r>Receive delivery</button></div><div class="tbl"><table class="fx"><colgroup>' + LIST_W.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup><thead><tr>' +
-          BUY_HEAD.map(function (h, i) { return '<th' + ([1, 2, 5].indexOf(i) >= 0 ? ' class="num"' : '') + '>' + esc(h) + '</th>'; }).join('') + '<th></th></tr></thead><tbody>' +
-          rs.map(function (r) { var i = r.item, a = asked[i.id]; return '<tr class="click" data-item="' + i.id + '"><td>' + esc(i.name) + (a ? '<div class="askb">Asked by ' + esc(a.who.join(', ') || 'staff') + '</div>' : '') + '</td><td class="num">' + fmt(i.current_stock) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-qty="' + i.id + '" value="' + esc(r.qty) + '" aria-label="Order qty"></td><td>' + esc(R.unitFor(i)) + '</td><td>' + esc(alt(i)) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-act="' + i.id + '" value="' + esc(bought(r)) + '" aria-label="Actual bought"></td><td><button class="icon-btn" data-un="' + i.id + '" aria-label="Remove from list" type="button">' + R.icon('x') + '</button></td></tr>'; }).join('') + '</tbody></table></div>';
+          BUY_HEAD.slice(0, 6).map(function (h, i) { return '<th' + ([1, 2, 5].indexOf(i) >= 0 ? ' class="num"' : '') + '>' + esc(h) + '</th>'; }).join('') + '<th></th></tr></thead><tbody>' +
+          rs.map(function (r) { var i = r.item, a = asked[i.id]; return '<tr class="click" data-item="' + i.id + '"><td>' + esc(i.name) + (a ? '<div class="askb">' + a.reqs.map(function (x) { return esc(x.id) + ' · ' + esc(x.who); }).join('<br>') + '</div>' : '') + '</td><td class="num">' + fmt(i.current_stock) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-qty="' + i.id + '" value="' + esc(r.qty) + '" aria-label="Order qty"></td><td>' + esc(R.unitFor(i)) + '</td><td>' + esc(alt(i)) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-act="' + i.id + '" value="' + esc(bought(r)) + '" aria-label="Actual bought"></td><td><button class="icon-btn" data-un="' + i.id + '" aria-label="Remove from list" type="button">' + R.icon('x') + '</button></td></tr>'; }).join('') + '</tbody></table></div>';
         $('[data-p]', c).onclick = function () { printHtml('Buy list ' + n, buyDoc([[n, rs]]), 'A4'); };
         $('[data-c]', c).onclick = function () { var t = listText(n, rs); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('Copied'); }, function () { R.ui.copy(t); }); };
         var sh = $('[data-sh]', c); if (sh) sh.onclick = function () { navigator.share({ title: 'Buy list · ' + n, text: listText(n, rs) }).catch(function () { /* cancelled */ }); };
