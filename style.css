@@ -472,3 +472,6 @@ body.side-min .collapse svg{transform:none}
 body.side-min nav.tabs button .badge.hide{display:none}
 @media (max-width:767px){.collapse{display:none}}
 @media (max-width:1023px) and (min-width:768px){nav.tabs button .nl{display:none}}
+
+.lbtns{display:inline-flex;gap:2px;justify-content:flex-end;width:100%}
+.lbtns .icon-btn{width:34px;height:34px}
