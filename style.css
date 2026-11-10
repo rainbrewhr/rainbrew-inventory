@@ -349,3 +349,61 @@ body.fab-away .fabs{transform:translateY(calc(100% + 40px));opacity:0;pointer-ev
   table.stack td::before{font-family:var(--sans)}
 }
 a{color:var(--accent-ink)}
+
+/* ---------- number boxes: plain box, minus and plus on the sides, no spinner arrows ---------- */
+input[type=number]{-moz-appearance:textfield;appearance:textfield}
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.numstep{display:inline-flex;align-items:stretch;max-width:100%;vertical-align:middle;border:1px solid var(--line2);border-radius:var(--r-sm);background:var(--panel);overflow:hidden}
+.numstep:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.numstep input{border:0;border-radius:0;box-shadow:none;background:transparent;text-align:center;width:64px;min-width:0;flex:1 1 auto;padding:8px 4px;font-family:var(--sans)}
+.numstep input:focus{box-shadow:none}
+.numstep .ns-b{flex:none;width:34px;border:0;background:var(--panel2);color:var(--text);display:grid;place-items:center;cursor:pointer;padding:0}
+.numstep .ns-b:first-child{border-right:1px solid var(--line)}.numstep .ns-b:last-child{border-left:1px solid var(--line)}
+.numstep .ns-b:active{background:var(--line)}
+td.num .numstep,.num .numstep{margin-left:auto}
+@media (max-width:767px){.numstep .ns-b{width:44px}table.stack td .numstep{max-width:none}table.stack td .numstep input{min-width:0;max-width:none;width:64px}}
+/* ---------- request search: highlighted, ready to type ---------- */
+.lb-q{border:2px solid var(--accent);background:var(--panel);padding-left:40px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23B84818' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:12px center;min-height:46px;font-size:16px}
+.lb-q:focus{box-shadow:0 0 0 4px var(--accent-soft)}
+.lb-q::-webkit-search-cancel-button{cursor:pointer}
+/* ---------- buy list ---------- */
+.pickc{display:flex;align-items:center;gap:12px;margin:0;cursor:pointer;font-size:inherit;font-weight:inherit;color:inherit;min-width:0}
+.pickc input[type=checkbox]{flex:none}
+.askb{display:block;font-size:12.5px;font-weight:600;color:var(--accent-ink);margin-top:2px}
+tr.sel td{background:var(--accent-soft)}
+th.num{font-family:var(--sans)}
+.seg button{min-height:40px}
+
+/* ---------- nothing may poke out of its card ---------- */
+.filters>*,.row>*,.card-head>*{min-width:0}
+.filters input,.filters select,.filters label{max-width:100%}
+.filters label input{width:100%}
+@media (max-width:767px){.filters{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+table.items{min-width:0}
+table.items td .numstep{width:100%}
+table.items td .numstep input{width:0;flex:1 1 0;padding:8px 2px}
+table.items td .numstep .ns-b{width:24px}
+table.items td{padding-left:6px;padding-right:6px}
+@media (max-width:767px){table.items td .numstep .ns-b{width:44px}table.stack.items td .numstep{width:auto}table.stack.items td .numstep input{width:64px;flex:none}}
+
+/* editable items table: cards below 1024px instead of sideways scrolling */
+@media (max-width:1023px){
+  .card.tbl:has(table.items){overflow:visible}
+  table.stack.items,table.stack.items.fx{table-layout:auto;min-width:0;width:100%}
+  table.stack.items colgroup,table.stack.items thead{display:none}
+  table.stack.items tbody,table.stack.items tr,table.stack.items td{display:block}
+  table.stack.items tr{border:1px solid var(--line);border-radius:var(--radius);margin:0 0 12px;padding:6px 14px;background:var(--panel);box-shadow:var(--shadow)}
+  table.stack.items tr.hide{display:none}
+  table.stack.items td{display:flex;justify-content:space-between;align-items:center;gap:12px;border:0;padding:7px 0;text-align:right}
+  table.stack.items td::before{content:attr(data-label);flex:none;max-width:42%;font-size:12.5px;font-weight:600;color:var(--mute);text-align:left}
+  table.stack.items td[data-label=""]::before{display:none}
+  table.stack.items td:first-child{display:block;text-align:left;font-weight:600;border-bottom:1px solid var(--line);padding:8px 0;margin-bottom:2px}
+  table.stack.items td:first-child::before{display:none}
+  table.stack.items td[colspan]{display:block;text-align:left}
+  table.stack.items .hm{display:flex}
+  table.stack.items td input:not([type=checkbox]),table.stack.items td select{width:auto;min-width:96px;max-width:60%}
+}
+.hello .row{flex-wrap:wrap}
+@media (max-width:767px){.hello .row .btn{flex:1 1 150px;min-width:0}}
+input.lb-q{padding-left:42px}
+@media (max-width:767px){.card.tbl{background:none;border:0;box-shadow:none;padding:0!important}}

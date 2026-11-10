@@ -224,6 +224,9 @@
   function lineBuilder(box, o) {
     o = o || {};
     var lines = [];
+    S.drafts = S.drafts || {};
+    function save() { if (o.key) S.drafts[o.key] = lines.map(function (l) { return { id: l.item.id, qty: l.qty, reason: l.reason || '' }; }); }
+    if (o.key && S.drafts[o.key]) S.drafts[o.key].forEach(function (d) { var it = S.map.get(d.id); if (it) lines.push({ item: it, qty: d.qty, reason: d.reason }); });
     box.innerHTML = '<input class="lb-q" type="search" placeholder="Search item to add…" autocomplete="off"><div class="suggest hide"></div>' +
       '<div class="tbl"><table><thead><tr><th>Item</th>' + (o.stock ? '<th class="num hm">In stock</th>' : '') + '<th class="num">Qty</th>' + (o.reason ? '<th>Reason</th>' : '') + '<th></th></tr></thead><tbody></tbody></table></div>' +
       '<p class="muted lb-empty">No items yet. Search above to add.</p>';
@@ -236,11 +239,11 @@
           (o.reason ? '<td><input data-f="reason" value="' + esc(l.reason || '') + '" placeholder="optional"></td>' : '') +
           '<td><button class="icon-btn" data-rm type="button" aria-label="Remove">' + icon('x') + '</button></td></tr>';
       }).join('');
-      empty.classList.toggle('hide', lines.length > 0);
+      empty.classList.toggle('hide', lines.length > 0); save();
     }
     tb.addEventListener('input', function (e) {
       var tr = e.target.closest('tr'); if (!tr || !e.target.dataset.f) return;
-      lines[+tr.dataset.i][e.target.dataset.f] = e.target.value;
+      lines[+tr.dataset.i][e.target.dataset.f] = e.target.value; save();
     });
     tb.addEventListener('click', function (e) {
       var b = e.target.closest('[data-rm]'); if (!b) return;
@@ -270,11 +273,17 @@
       qi.value = ''; sg.classList.add('hide'); draw();
       var last = tb.querySelector('tr:last-child input[data-f=qty]'); if (last) last.focus();
     });
+    qi.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return; e.preventDefault();
+      var first = sg.querySelector('button[data-id]'); if (first) first.click();
+    });
     draw();
+    if (o.autofocus) setTimeout(function () { try { qi.focus({ preventScroll: true }); } catch (x) { qi.focus(); } }, 60);
     return {
       get lines() { return lines.filter(function (l) { return Number(l.qty) > 0; }); },
       set: function (list) { lines.length = 0; list.forEach(function (x) { lines.push(x); }); draw(); },
-      clear: function () { lines.length = 0; draw(); }
+      clear: function () { lines.length = 0; draw(); },
+      reset: function () { lines.length = 0; if (o.key) delete S.drafts[o.key]; draw(); }
     };
   }
 
@@ -417,7 +426,7 @@
     var pending = false;
     new MutationObserver(function () {
       if (pending) return; pending = true;
-      requestAnimationFrame(function () { pending = false; stackTables(main); decorateButtons(main); });
+      requestAnimationFrame(function () { pending = false; decorateNumbers(main); stackTables(main); decorateButtons(main); });
     }).observe(main, { childList: true, subtree: true });
     window.addEventListener('hashchange', function () {
       var h = location.hash.slice(1);
@@ -453,6 +462,26 @@
     });
   }
 
+  function decorateNumbers(scope) {
+    scope.querySelectorAll('input[type=number]:not([data-ns])').forEach(function (inp) {
+      inp.setAttribute('data-ns', '1');
+      if (inp.hasAttribute('data-nostep') || !inp.parentNode) return;
+      var w = document.createElement('span'); w.className = 'numstep';
+      var mk = function (dir) { var b = document.createElement('button'); b.type = 'button'; b.tabIndex = -1; b.className = 'ns-b'; b.setAttribute('aria-label', dir < 0 ? 'Minus' : 'Plus'); b.innerHTML = icon(dir < 0 ? 'minus' : 'plus', 'sm'); b.dataset.d = dir; return b; };
+      inp.parentNode.insertBefore(w, inp); w.appendChild(mk(-1)); w.appendChild(inp); w.appendChild(mk(1));
+      inp.style.width = '';
+      w.addEventListener('click', function (e) {
+        var b = e.target.closest('.ns-b'); if (!b || inp.disabled) return;
+        var step = parseFloat(inp.dataset.step || inp.getAttribute('step')); if (!(step > 0)) step = 1;
+        var min = inp.min !== '' ? Number(inp.min) : -Infinity, max = inp.max !== '' ? Number(inp.max) : Infinity;
+        var v = Math.round(((parseFloat(inp.value) || 0) + step * Number(b.dataset.d)) * 1000) / 1000;
+        inp.value = String(Math.min(max, Math.max(min, v)));
+        inp.dispatchEvent(new Event('input', { bubbles: true })); inp.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      inp.addEventListener('wheel', function () { if (document.activeElement === inp) inp.blur(); }, { passive: true });
+      inp.addEventListener('keydown', function (e) { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault(); });
+    });
+  }
   function stackTables(scope) {
     scope.querySelectorAll('table').forEach(function (t) {
       var heads = [].map.call(t.querySelectorAll('thead th'), function (th) { return th.textContent.trim(); });
@@ -573,7 +602,7 @@
         (o.icon ? '<span class="big-ico ico ' + (o.tone || '') + '">' + icon(o.icon) + '</span>' : '') + '<h2>' + esc(o.title) + '</h2><button class="icon-btn" data-x aria-label="Close">' + icon('x') + '</button></div>' +
         '<div class="sb">' + (o.body || '') + '<p class="muted" data-err style="color:var(--crit);margin:10px 0 0" role="alert"></p></div>' +
         '<div class="sf">' + (o.actions || []).map(function (a, i) { return '<button class="btn ' + (a.kind || '') + '" data-a="' + i + '">' + (a.icon ? icon(a.icon) : '') + esc(a.label) + '</button>'; }).join('') + '</div></div>';
-      document.body.appendChild(m);
+      document.body.appendChild(m); decorateNumbers(m);
       var tok = ovOpen(function () { close(null); });
       function close(v) { document.removeEventListener('keydown', onKey); ovRelease(tok); m.remove(); if (before && before.focus) before.focus(); resolve(v); }
       function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); close(null); } }
@@ -664,7 +693,7 @@
   function adjustDialog(it) {
     popup({ title: 'Adjust stock', icon: 'sliders', tone: 'accent',
       body: '<p class="muted" style="margin:0 0 4px"><b style="color:var(--text)">' + esc(it.name) + '</b> · on hand <span class="mono">' + fmt(it.current_stock) + '</span> ' + esc(it.unit || '') + '</p>' +
-        '<label>Add or remove</label><div class="stepper"><button type="button" class="btn alt" data-st="-1" aria-label="Minus one">' + icon('minus') + '</button><input id="ad-q" type="number" step="any" inputmode="decimal" placeholder="0"><button type="button" class="btn alt" data-st="1" aria-label="Plus one">' + icon('plus') + '</button></div>' +
+        '<label>Add or remove</label><div class="stepper"><button type="button" class="btn alt" data-st="-1" aria-label="Minus one">' + icon('minus') + '</button><input id="ad-q" data-nostep="1" type="number" step="any" inputmode="decimal" placeholder="0"><button type="button" class="btn alt" data-st="1" aria-label="Plus one">' + icon('plus') + '</button></div>' +
         '<div class="quick">' + [-10, -5, -1, 1, 5, 10].map(function (n) { return '<button type="button" class="btn alt" data-st="' + n + '">' + (n > 0 ? '+' : '−') + Math.abs(n) + '</button>'; }).join('') + '</div>' +
         '<p class="muted" id="ad-prev" style="margin:10px 0 0"></p><label>Reason</label><select id="ad-r"><option value="">Choose a reason…</option>' + REASONS.map(function (r) { return '<option>' + esc(r) + '</option>'; }).join('') + '</select><label>Note (optional)</label><input id="ad-n" placeholder="Invoice no., what happened…">',
       actions: [{ label: 'Cancel', kind: 'alt', value: null }, { label: 'Apply', icon: 'check', kind: 'primary-go', run: async function (m) {
@@ -756,7 +785,7 @@
       '<label>Supplier</label><input id="rs" list="rsl" placeholder="Supplier name"><datalist id="rsl">' + sups.map(function (s) { return '<option value="' + esc(s.name) + '">'; }).join('') + '</datalist>' +
       '<label>Against an urgent buy request (optional)</label><select id="rp">' + opts(purs.map(function (p) { return { value: p.id, label: p.id + ' · ' + openLines(p).length + ' item(s) · ' + (p.requester_name || '') }; }), '', 'Not against a request') + '</select>' +
       '<label>Items received</label><div id="lb"></div><label>Note (e.g. invoice no.)</label><input id="rn"><div style="margin-top:12px"><button class="btn" id="rgo">Receive into stock</button></div></div>';
-    var lb = lineBuilder($('#lb', box), { stock: true });
+    var lb = lineBuilder($('#lb', box), { stock: true, key: 'receive' });
     if (window.RB.prefill) {
       var pf = window.RB.prefill; window.RB.prefill = null;
       $('#rs', box).value = pf.supplier || ''; lb.set(pf.lines);
@@ -771,7 +800,7 @@
         var ls = lb.lines.map(function (l) { return { item_id: l.item.id, qty: +l.qty }; });
         if (!ls.length) throw new Error('Add items with a quantity');
         var id = await rpc('receive_stock', { p_supplier: $('#rs', box).value.trim(), p_ref: $('#rp', box).value, p_note: $('#rn', box).value.trim(), p_lines: ls });
-        toast('Received · ' + id); await loadCatalog(true); show('receive');
+        var got = ls.map(function (x) { return x.item_id; }); lb.reset(); toast('Received · ' + id); if (window.RB.afterReceive) window.RB.afterReceive(got); await loadCatalog(true); show('receive');
       });
     };
   }
@@ -790,7 +819,7 @@
       (fixedKind ? '' : '<label>Type</label><select id="wk"><option value="stockroom">Stock room waste (deducts stock)</option><option value="station">Station waste (log only)</option></select>') +
       '<div id="wst"' + (fixedKind ? '' : ' class="hide"') + '>' + (staff ? '<p class="muted">Station: ' + esc(S.profile.station || '') + '</p>' : '<label>Station</label><select id="ws">' + opts(sts, S.profile.station || '', 'Choose…') + '</select>') + '</div>' +
       '<label>Items wasted</label><div id="lb"></div><label>Note</label><input id="wn"><div style="margin-top:12px"><button class="btn" id="wgo">Record waste</button></div></div>';
-    var lb = lineBuilder($('#lb', box), { stock: !fixedKind, reason: true, noNew: true });
+    var lb = lineBuilder($('#lb', box), { stock: !fixedKind, reason: true, noNew: true, key: 'waste' + (fixedKind || '') });
     var wk = $('#wk', box);
     if (wk) wk.onchange = function () { $('#wst', box).classList.toggle('hide', wk.value !== 'station'); };
     $('#wgo', box).onclick = function (e) {
@@ -800,7 +829,7 @@
         if (!ls.length) throw new Error('Add items with a quantity');
         var ws = $('#ws', box);
         var id = await rpc('log_waste', { p_kind: kind, p_station: ws ? ws.value : (S.profile.station || ''), p_note: $('#wn', box).value.trim(), p_lines: ls });
-        toast('Recorded · ' + id); await loadCatalog(true); show(cur);
+        lb.reset(); toast('Recorded · ' + id); await loadCatalog(true); show(cur);
       });
     };
   }
@@ -853,7 +882,7 @@
     box.innerHTML = '<div class="card"><h2>Request items from the stock room</h2>' +
       (fixed ? '<p class="muted">Sending to: <b>' + esc(S.profile.station || '') + '</b></p>' : '<label>Station</label><select id="rst">' + opts(sts, S.profile.station || '', 'Choose…') + '</select>') +
       '<label>Items</label><div id="lb"></div><label>Note</label><input id="rn"><div style="margin-top:12px"><button class="btn" id="rgo">Send request</button></div></div>';
-    var lb = lineBuilder($('#lb', box), { stock: true });
+    var lb = lineBuilder($('#lb', box), { stock: true, key: 'req', autofocus: true });
     var np = takeNav(); if (np.addItem && S.map.get(np.addItem)) lb.set([{ item: S.map.get(np.addItem), qty: '' }]);
     $('#rgo', box).onclick = function (e) {
       act(e.currentTarget, async function () {
@@ -861,7 +890,7 @@
         if (!ls.length) throw new Error('Add items with a quantity');
         var st = $('#rst', box);
         var id = await rpc('create_request', { p_type: 'Transfer', p_station: st ? st.value : (S.profile.station || ''), p_notes: $('#rn', box).value.trim(), p_lines: ls });
-        toast('Sent · ' + id); show('req');
+        lb.reset(); toast('Sent · ' + id); show('req');
       });
     };
   }
@@ -869,13 +898,13 @@
   async function vBuyRequest(box) {
     await loadCatalog(true);
     box.innerHTML = '<div class="card"><h2>Request to buy (urgent)</h2><p class="muted">Use this when the stock room itself is short. Procurement will see it right away.</p><label>Items</label><div id="lb"></div><label>Note</label><input id="rn"><div style="margin-top:12px"><button class="btn" id="rgo">Send buy request</button></div></div>';
-    var lb = lineBuilder($('#lb', box), { stock: true });
+    var lb = lineBuilder($('#lb', box), { stock: true, key: 'buyreq', autofocus: true });
     $('#rgo', box).onclick = function (e) {
       act(e.currentTarget, async function () {
         var ls = lb.lines.map(function (l) { return { item_id: l.item.id, qty: +l.qty }; });
         if (!ls.length) throw new Error('Add items with a quantity');
         var id = await rpc('create_request', { p_type: 'Purchase', p_station: S.profile.station || '', p_notes: $('#rn', box).value.trim(), p_lines: ls });
-        toast('Sent · ' + id); show('buyreq');
+        lb.reset(); toast('Sent · ' + id); show('buyreq');
       });
     };
   }
