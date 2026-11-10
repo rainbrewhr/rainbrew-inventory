@@ -101,8 +101,30 @@
     if (R.role() !== 'Admin') return '';
     return (['Pending', 'Partial'].indexOf(status) >= 0 ? '<button class="btn alt sm" data-cancel="' + esc(id) + '">Cancel request</button>' : '') + '<button class="btn alt sm" data-del="' + esc(id) + '">Delete</button>';
   }
+  function lineBtns(l, reqStatus) {
+    if (R.role() !== 'Admin' || ['Pending', 'Partial'].indexOf(reqStatus) < 0 || ['Pending', 'Partial'].indexOf(l.status) < 0) return '';
+    var nm = (l.items && l.items.name) || (S.map.get(l.item_id) || {}).name || '';
+    return '<span class="lbtns"><button type="button" class="icon-btn" data-eline="' + l.id + '" data-req="' + l.requested_qty + '" data-ful="' + l.fulfilled_qty + '" data-name="' + esc(nm) + '" data-unit="' + esc(l.unit || '') + '" aria-label="Edit quantity" title="Edit quantity">' + R.icon('edit') + '</button>' +
+      '<button type="button" class="icon-btn" data-rline="' + l.id + '" data-name="' + esc(nm) + '" data-ful="' + l.fulfilled_qty + '" aria-label="Remove item from request" title="Remove item from request">' + R.icon('x') + '</button></span>';
+  }
   function bindAdmin(root, after) {
     root.addEventListener('click', async function (e) {
+      var el = e.target.closest('[data-eline]'), rl = e.target.closest('[data-rline]');
+      if (el) {
+        var d0 = el.dataset, ful = Number(d0.ful) || 0;
+        var nq = await R.ui.popup({ title: 'Change quantity', icon: 'edit', tone: 'accent',
+          body: '<p class="muted" style="margin:0 0 6px"><b style="color:var(--text)">' + esc(d0.name) + '</b> · asked ' + esc(fmt(d0.req)) + ' ' + esc(d0.unit) + (ful ? ' · ' + esc(fmt(ful)) + ' already done' : '') + '</p><label>New quantity</label><input id="nq" type="number" min="' + (ful || 0) + '" step="any" inputmode="decimal" value="' + esc(d0.req) + '">',
+          actions: [{ label: 'Cancel', kind: 'alt', value: null }, { label: 'Save', kind: 'primary-go', run: function (m) { var v = Number($('#nq', m).value); if (!(v > 0)) throw new Error('Enter a quantity above zero'); if (v < ful) throw new Error(fmt(ful) + ' is already done, so it cannot go below that'); return v; } }] });
+        if (nq === null || nq === undefined || nq === true) return;
+        act(el, async function () { await rpc('edit_request_item', { p_line: +d0.eline, p_qty: nq }); toast('Quantity updated'); await after(); });
+        return;
+      }
+      if (rl) {
+        if (Number(rl.dataset.ful) > 0) return toast('Part of this item is already done. Lower the quantity instead.', true);
+        var go = await R.ui.confirm('Remove ' + rl.dataset.name + ' from this request? If it is the last item, the whole request is cancelled.', { title: 'Remove item', danger: true, ok: 'Remove item' }); if (!go) return;
+        act(rl, async function () { await rpc('remove_request_item', { p_line: +rl.dataset.rline }); toast('Item removed'); await after(); });
+        return;
+      }
       var c = e.target.closest('[data-cancel]'), d = e.target.closest('[data-del]'); if (!c && !d) return;
       var btn = c || d, id = (c || d).dataset[c ? 'cancel' : 'del'];
       if (c) {
@@ -129,7 +151,7 @@
     var CH = [['', 'All', null], ['CRITICAL', 'Critical / out', 'var(--crit)'], ['LOW', 'Low', 'var(--warn)'], ['OK', 'Optimal', 'var(--ok)']];
     box.innerHTML = '<div class="card-head"><h2 style="font:600 18px var(--display)">Stock levels</h2><span class="sp"></span><button class="btn alt sm" id="sp">' + R.icon('print') + 'Print</button><button class="btn alt sm" id="sc">' + R.icon('receive') + 'CSV</button></div>' +
       '<div class="chips" id="chips"></div>' +
-      fbar([{ t: 's', k: 'q', ph: 'Search by item name…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All locations', o: flat('stocked_at') }, { t: 'c', k: 'stn', ph: 'All stations', o: flat('used_by') },
+      fbar([{ t: 's', k: 'q', ph: 'Search by item name…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All stock rooms', o: flat('stocked_at') }, { t: 'c', k: 'stn', ph: 'All stations', o: flat('used_by') },
         { t: 'c', k: 'sup', ph: 'All suppliers', o: sups.map(function (s) { return { value: s.id, label: s.name }; }) }, { t: 'c', k: 'sort', ph: 'Sort: urgent first', o: SORT_OPTS }], st) +
       '<div class="card tbl" style="padding:6px 8px"><table><thead><tr><th>Item</th><th class="hm">Location</th><th class="num">Stock</th><th class="num hm">Reorder</th><th>Status</th><th></th></tr></thead><tbody id="sb"></tbody></table></div><p class="muted" id="sn" style="text-align:center"></p>';
     var list = [];
@@ -174,10 +196,10 @@
         var lines = R.openLines(r);
         c.innerHTML = '<div class="row"><h2 class="grow">' + esc(r.id) + ' → ' + esc(r.station || '') + '</h2>' + pill(r.status) + '<button class="btn alt sm" data-pr>Print A6</button></div>' +
           '<p class="muted">' + esc(r.requester_name || '') + ' · ' + esc(when(r.created_at)) + (r.notes ? ' · ' + esc(r.notes) : '') + '</p>' +
-          '<div class="tbl"><table><thead><tr><th>Item</th><th class="num">Asked</th><th class="num">In stock</th><th class="num">Release</th></tr></thead><tbody>' +
+          '<div class="tbl"><table><thead><tr><th>Item</th><th class="num">Asked</th><th class="num">In stock</th><th class="num">Release</th>' + (R.role() === 'Admin' ? '<th></th>' : '') + '</tr></thead><tbody>' +
           lines.map(function (l) {
             var it = S.map.get(l.item_id), s = it ? Number(it.current_stock) : 0, def = Math.max(0, Math.min(Number(l.remaining_qty), s));
-            return '<tr data-line="' + l.id + '"><td>' + esc(l.items.name) + '<div class="muted">' + esc(l.unit || '') + (it && it.stocked_at && it.stocked_at.length ? ' · ' + esc(it.stocked_at.join(' / ')) : '') + '</div></td><td class="num">' + fmt(l.remaining_qty) + '</td><td class="num">' + fmt(s) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" value="' + def + '" style="width:92px"></td></tr>';
+            return '<tr data-line="' + l.id + '"><td>' + esc(l.items.name) + '<div class="muted">' + esc(l.unit || '') + (it && it.stocked_at && it.stocked_at.length ? ' · ' + esc(it.stocked_at.join(' / ')) : '') + '</div></td><td class="num">' + fmt(l.remaining_qty) + '</td><td class="num">' + fmt(s) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" value="' + def + '" style="width:92px"></td>' + (R.role() === 'Admin' ? '<td>' + lineBtns(l, r.status) + '</td>' : '') + '</tr>';
           }).join('') + '</tbody></table></div><div class="row" style="margin-top:10px"><button class="btn" data-go>Release</button><button class="btn alt" data-no>Reject</button>' + adminBtns(r.id, r.status) + '</div>';
         $('[data-pr]', c).onclick = function () { printSlips([r], r.id); };
         $('[data-go]', c).onclick = function (e) {
@@ -213,11 +235,12 @@
       high: function (a, b) { return Number(b.current_stock) - Number(a.current_stock) || byName(a, b); },
       name: byName,
       cat: function (a, b) { return String(a.category || '~').localeCompare(String(b.category || '~')) || byName(a, b); },
+      loc: function (a, b) { var x = (a.stocked_at || []).join(' / ') || '~', y = (b.stocked_at || []).join(' / ') || '~'; return x.localeCompare(y) || byName(a, b); },
       sup: function (a, b) { return String((sm || {})[a.supplier_id] || '~').localeCompare(String((sm || {})[b.supplier_id] || '~')) || byName(a, b); }
     };
     return f[key] || f.urgency;
   }
-  var SORT_OPTS = [{ value: 'low', label: 'Sort: stock, lowest first' }, { value: 'high', label: 'Sort: stock, highest first' }, { value: 'name', label: 'Sort: name A–Z' }, { value: 'cat', label: 'Sort: category' }, { value: 'sup', label: 'Sort: supplier' }];
+  var SORT_OPTS = [{ value: 'low', label: 'Sort: stock, lowest first' }, { value: 'high', label: 'Sort: stock, highest first' }, { value: 'name', label: 'Sort: name A–Z' }, { value: 'loc', label: 'Sort: stock room' }, { value: 'cat', label: 'Sort: category' }, { value: 'sup', label: 'Sort: supplier' }];
   V.buy = async function (box) {
     await R.loadCatalog(true);
     var sups = await R.suppliers(), sm = supMap(), st = F.buy;
@@ -266,7 +289,7 @@
       all.forEach(function (i) { tally[urg(i) === 0 ? 'CRITICAL' : urg(i) === 1 ? 'LOW' : 'OK'] += 1; if (asked[i.id]) tally.ASKED += 1; });
       var CH = [['', 'All', null], ['CRITICAL', 'Critical / out', 'var(--crit)'], ['LOW', 'Low', 'var(--warn)'], ['OK', 'Optimal', 'var(--ok)'], ['ASKED', 'Asked by staff', 'var(--accent)']];
       body.innerHTML = '<div class="chips" id="bch"></div>' +
-        fbar([{ t: 's', k: 'q', ph: 'Search item…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'sup', ph: 'All suppliers', o: sups.map(function (s) { return { value: s.id, label: s.name }; }) }, { t: 'c', k: 'sort', ph: 'Sort: urgent first', o: SORT_OPTS }], st) +
+        fbar([{ t: 's', k: 'q', ph: 'Search item…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All stock rooms', o: flat('stocked_at') }, { t: 'c', k: 'sup', ph: 'All suppliers', o: sups.map(function (s) { return { value: s.id, label: s.name }; }) }, { t: 'c', k: 'sort', ph: 'Sort: urgent first', o: SORT_OPTS }], st) +
         '<div class="card" style="padding:12px 16px"><div class="row" style="gap:8px"><button class="btn alt sm" id="bsl"></button><button class="btn alt sm" id="bss">Select all shown</button><button class="btn alt sm" id="bsc">Clear selection</button><span class="sp" style="flex:1"></span><button class="btn sm" id="bgo"></button></div></div>' +
         '<div class="card tbl" style="padding:6px 8px"><table class="fx"><colgroup>' + PICK_W.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup><thead><tr><th>Item</th><th class="num">In stock</th><th class="num">Reorder at</th><th>Status</th><th>Supplier</th><th class="num">Order qty</th></tr></thead><tbody id="bp2"></tbody></table></div><p class="muted" id="bpn" style="text-align:center"></p>';
       var shown = [];
@@ -280,7 +303,7 @@
       }
       function draw() {
         shown = all.filter(function (i) {
-          if (!hit(i, { q: st.q, cat: st.cat, sup: st.sup })) return false;
+          if (!hit(i, { q: st.q, cat: st.cat, sup: st.sup, loc: st.loc })) return false;
           if (st.pst === 'ASKED') return !!asked[i.id];
           if (st.pst) return (urg(i) === 0 ? 'CRITICAL' : urg(i) === 1 ? 'LOW' : 'OK') === st.pst;
           return true;
@@ -320,7 +343,7 @@
     function entries() {
       var out = [];
       purs.slice().sort(function (a, b) { return String(a.created_at).localeCompare(String(b.created_at)); }).forEach(function (p) {
-        R.openLines(p).forEach(function (l) { var it = S.map.get(l.item_id); if (!it) return; var k = 'L' + l.id; out.push({ key: k, item: it, qty: st.lineQty[k] != null ? st.lineQty[k] : String(l.remaining_qty), req: p }); });
+        R.openLines(p).forEach(function (l) { var it = S.map.get(l.item_id); if (!it) return; var k = 'L' + l.id; out.push({ key: k, item: it, qty: st.lineQty[k] != null ? st.lineQty[k] : String(l.remaining_qty), req: p, line: l }); });
       });
       Object.keys(st.sel).forEach(function (id) { var it = S.map.get(id); if (it) out.push({ key: 'I' + id, item: it, qty: st.sel[id], req: null }); });
       return out;
@@ -350,7 +373,7 @@
         if (c === 'unit') return '<td>' + esc(R.unitFor(i)) + '</td>';
         if (c === 'alt') return '<td>' + esc(alt(i)) + '</td>';
         if (c === 'act') return '<td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-act="' + e.key + '" value="' + esc(boughtOf(e)) + '" aria-label="Actual bought qty"></td>';
-        return '<td>' + (e.req ? '' : '<button class="icon-btn" data-un="' + i.id + '" aria-label="Remove from list" type="button">' + R.icon('x') + '</button>') + '</td>';
+        return '<td>' + (e.req ? lineBtns(e.line, e.req.status) : '<button class="icon-btn" data-un="' + i.id + '" aria-label="Remove from list" type="button">' + R.icon('x') + '</button>') + '</td>';
       }
       function textOf(c, e) { var i = e.item; return c === 'item' ? i.name : c === 'sup' ? (sm[i.supplier_id] || '') : c === 'stock' ? fmt(i.current_stock) : c === 'qty' ? fmt(e.qty) : c === 'unit' ? R.unitFor(i) : c === 'alt' ? alt(i) : c === 'act' ? boughtOf(e) : ''; }
       function docTable(ges, mode) {
@@ -408,7 +431,7 @@
     await R.loadCatalog(true);
     var sts = await R.stations(), st = F.count;
     box.innerHTML = '<div class="card"><h2>Stock count</h2><label>Where are you counting?</label><select id="cw">' + opts([{ value: '', label: 'Stock room (adjusts stock)' }].concat(sts.map(function (s) { return { value: s, label: s + ' (log only)' }; })), st.where || '') + '</select>' +
-      '<p class="muted" id="ch"></p></div>' + fbar([{ t: 's', k: 'q', ph: 'Filter items…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All locations', o: flat('stocked_at') }], st) +
+      '<p class="muted" id="ch"></p></div>' + fbar([{ t: 's', k: 'q', ph: 'Filter items…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All stock rooms', o: flat('stocked_at') }], st) +
       '<div class="card tbl"><table><thead><tr><th>Item</th><th class="num" id="sh">System</th><th class="num">Counted</th></tr></thead><tbody id="ct"></tbody></table></div><p class="muted" id="cn"></p><button class="btn" id="cgo">Post count</button>';
     var items = S.items.filter(function (i) { return i.active; });
     function station() { return $('#cw', box).value; }
@@ -483,7 +506,7 @@
       out.innerHTML = last.reqs.map(function (x) {
         return '<div class="card"><div class="row"><h2 class="grow">' + esc(x.id) + (x.station ? ' · ' + esc(x.station) : '') + '</h2>' + pill(x.status) + '<button class="btn alt sm" data-pr="' + esc(x.id) + '">Print A6</button>' + adminBtns(x.id, x.status) + '</div>' +
           '<p class="muted">' + esc(x.requester_name || '') + ' · ' + esc(when(x.created_at)) + (x.notes ? ' · ' + esc(x.notes) : '') + '</p><div class="tbl"><table><tbody>' +
-          (x.request_items || []).map(function (l) { return '<tr><td>' + esc(l.items ? l.items.name : '') + '</td><td class="num">' + fmt(l.fulfilled_qty) + ' / ' + fmt(l.requested_qty) + ' ' + esc(l.unit || '') + '</td><td>' + pill(l.status) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
+          (x.request_items || []).map(function (l) { return '<tr><td>' + esc(l.items ? l.items.name : '') + '</td><td class="num">' + fmt(l.fulfilled_qty) + ' / ' + fmt(l.requested_qty) + ' ' + esc(l.unit || '') + '</td><td>' + pill(l.status) + '</td>' + (R.role() === 'Admin' ? '<td>' + lineBtns(l, x.status) + '</td>' : '') + '</tr>'; }).join('') + '</tbody></table></div></div>';
       }).join('') || '<div class="card">' + R.ui.empty(mine ? 'req' : 'search', mine ? 'No requests yet' : 'No requests found', mine ? 'Tap the + button to send your first request.' : 'Try a different ID, status or date range.') + '</div>';
       if (last.mv.length) {
         out.insertAdjacentHTML('beforeend', '<div class="card"><h2>Stock movements (' + last.mv.length + ')</h2><div class="tbl"><table><tbody>' + last.mv.map(function (m) {
@@ -620,8 +643,8 @@
       '<div style="margin-top:10px"><button class="btn" id="aadd">Add item</button></div><datalist id="cl">' + cats().map(function (c) { return '<option value="' + esc(c) + '">'; }).join('') + '</datalist><datalist id="ll">' + locs.filter(function (l) { return l.type === 'Stock Room'; }).map(function (l) { return '<option value="' + esc(l.name) + '">'; }).join('') + '</datalist><datalist id="sl">' + locs.filter(function (l) { return l.type === 'Station'; }).map(function (l) { return '<option value="' + esc(l.name) + '">'; }).join('') + '</datalist></details>' +
       '<details class="card"><summary><b>Suppliers (' + sups.length + ')</b></summary><div class="row" style="margin:8px 0"><input id="sn" class="grow" placeholder="New supplier name"><button class="btn alt" id="sadd">Add supplier</button></div><div class="tbl"><table><thead><tr><th>Supplier</th><th class="num">Items</th><th></th></tr></thead><tbody id="sl2">' +
         sups.map(function (sp) { var n = S.items.filter(function (i) { return i.supplier_id === sp.id || i.alt_supplier_1_id === sp.id || i.alt_supplier_2_id === sp.id; }).length; return '<tr data-sid="' + sp.id + '"><td><input data-sf value="' + esc(sp.name) + '"></td><td class="num">' + n + '</td><td>' + (n ? '' : '<button class="btn alt sm" data-sdel>Delete</button>') + '</td></tr>'; }).join('') + '</tbody></table></div></details></div>' +
-      fbar([{ t: 's', k: 'q', ph: 'Search items…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'sup', ph: 'All suppliers', o: supOpts },
-        { t: 'c', k: 'need', ph: 'All items', o: [needLabel('nosup', 'No supplier'), needLabel('noreorder', 'No reorder point'), needLabel('nocrit', 'No critical level'), needLabel('nopar', 'No PAR'), needLabel('noloc', 'No location'), needLabel('neg', 'Negative stock'), { value: 'inactive', label: 'Inactive' }] }], st) +
+      fbar([{ t: 's', k: 'q', ph: 'Search items…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All stock rooms', o: flat('stocked_at') }, { t: 'c', k: 'sup', ph: 'All suppliers', o: supOpts },
+        { t: 'c', k: 'need', ph: 'All items', o: [needLabel('nosup', 'No supplier'), needLabel('noreorder', 'No reorder point'), needLabel('nocrit', 'No critical level'), needLabel('nopar', 'No PAR'), needLabel('noloc', 'No location'), needLabel('neg', 'Negative stock'), { value: 'inactive', label: 'Inactive' }] }, { t: 'c', k: 'sort', ph: 'Sort: name (A–Z)', o: SORT_OPTS }], st) +
       '<p class="muted" id="ihint" style="margin:0 0 8px"><span id="icount"></span> · Click a cell and type. <b>Tab</b> moves right, <b>Enter</b> moves down, <b>Ctrl+D</b> fills down, and you can paste cells copied from Google Sheets. Changes save by themselves. <span id="isave" class="isave"></span></p>' +
       '<div class="sheet-wrap"><table class="sheet items"><colgroup>' + COLS.map(function (c) { return '<col style="width:' + c.w + 'px">'; }).join('') + '</colgroup><thead><tr>' + COLS.map(function (c) { return '<th' + (c.num ? ' class="num"' : '') + '>' + esc(c.h) + '</th>'; }).join('') + '</tr></thead><tbody id="it"></tbody></table></div>';
     var pendingSaves = 0;
@@ -637,7 +660,7 @@
       return '<td data-label="' + esc(c.h) + '"><input data-f="' + c.f + '"' + (c.f === 'category' ? ' list="cl"' : '') + ' autocomplete="off" value="' + esc(v || '') + '"' + lab + '></td>';
     }
     function draw() {
-      var list = S.items.filter(function (i) { if (st.need === 'inactive') return !i.active && hit(i, st); return (st.need ? NEED[st.need](i) && i.active : i.active) && hit(i, st); });
+      var list = S.items.filter(function (i) { if (st.need === 'inactive') return !i.active && hit(i, st); return (st.need ? NEED[st.need](i) && i.active : i.active) && hit(i, st); }).sort(sorter(st.sort || 'name', sm));
       $('#icount', box).textContent = list.length + ' item(s)';
       $('#it', box).innerHTML = list.map(function (i) { return '<tr data-id="' + i.id + '">' + COLS.map(function (c) { return cell(i, c); }).join('') + '</tr>'; }).join('') || '<tr><td colspan="' + COLS.length + '" class="muted" style="padding:14px">No items match.</td></tr>';
     }
