@@ -96,6 +96,25 @@
     return true;
   }
 
+  /* ---------- admin: cancel or delete a request (shared by History, Release and Buy list) ---------- */
+  function adminBtns(id, status) {
+    if (R.role() !== 'Admin') return '';
+    return (['Pending', 'Partial'].indexOf(status) >= 0 ? '<button class="btn alt sm" data-cancel="' + esc(id) + '">Cancel request</button>' : '') + '<button class="btn alt sm" data-del="' + esc(id) + '">Delete</button>';
+  }
+  function bindAdmin(root, after) {
+    root.addEventListener('click', async function (e) {
+      var c = e.target.closest('[data-cancel]'), d = e.target.closest('[data-del]'); if (!c && !d) return;
+      var btn = c || d, id = (c || d).dataset[c ? 'cancel' : 'del'];
+      if (c) {
+        var why = await R.ui.ask({ title: 'Cancel ' + id, icon: 'alert', label: 'Reason (optional)', multiline: true, placeholder: 'Why is this being cancelled?', ok: 'Cancel request' }); if (why === null) return;
+        act(btn, async function () { await rpc('cancel_request', { p_req: id, p_reason: why }); toast(id + ' cancelled'); await after(); });
+      } else {
+        var yes = await R.ui.confirm('Delete ' + id + ' for good? It disappears from every list. Stock that was already released or received stays in the stock records.', { title: 'Delete request', danger: true, ok: 'Delete' }); if (!yes) return;
+        act(btn, async function () { await rpc('delete_request', { p_req: id }); toast(id + ' deleted'); await after(); });
+      }
+    });
+  }
+
   /* ---------- Stock levels (filters, print, csv, item ledger) ---------- */
   V.stock = async function (box) {
     await R.loadCatalog();
@@ -159,7 +178,7 @@
           lines.map(function (l) {
             var it = S.map.get(l.item_id), s = it ? Number(it.current_stock) : 0, def = Math.max(0, Math.min(Number(l.remaining_qty), s));
             return '<tr data-line="' + l.id + '"><td>' + esc(l.items.name) + '<div class="muted">' + esc(l.unit || '') + (it && it.stocked_at && it.stocked_at.length ? ' · ' + esc(it.stocked_at.join(' / ')) : '') + '</div></td><td class="num">' + fmt(l.remaining_qty) + '</td><td class="num">' + fmt(s) + '</td><td class="num"><input type="number" min="0" step="any" inputmode="decimal" value="' + def + '" style="width:92px"></td></tr>';
-          }).join('') + '</tbody></table></div><div class="row" style="margin-top:10px"><button class="btn" data-go>Release</button><button class="btn alt" data-no>Reject</button></div>';
+          }).join('') + '</tbody></table></div><div class="row" style="margin-top:10px"><button class="btn" data-go>Release</button><button class="btn alt" data-no>Reject</button>' + adminBtns(r.id, r.status) + '</div>';
         $('[data-pr]', c).onclick = function () { printSlips([r], r.id); };
         $('[data-go]', c).onclick = function (e) {
           act(e.currentTarget, async function () {
@@ -177,6 +196,7 @@
         out.appendChild(c);
       });
     }
+    bindAdmin($('#rl', box), function () { return R.show('release'); });
     wire(box, st, draw); draw();
     $('#pa', box).onclick = function () { printSlips(visible(), 'Open requests'); };
   };
@@ -351,7 +371,7 @@
       var bto = $('#bto', box); if (bto) bto.onclick = function () { st.view = 'pick'; render(); };
       groups.forEach(function (g) {
         var c = document.createElement('div'); c.className = 'card';
-        c.innerHTML = '<div class="row"><div class="grow"><h2 style="margin:0">' + esc(g.title) + '</h2>' + (g.sub ? '<p class="muted" style="margin:4px 0 0">' + esc(g.sub) + '</p>' : '') + '</div><button class="btn alt sm" data-p>Print</button><button class="btn alt sm" data-c>Copy</button>' + (navigator.share ? '<button class="btn alt sm" data-sh>Share</button>' : '') + '<button class="btn sm" data-r>Receive delivery</button></div><div class="tbl"><table class="fx"><colgroup>' + lay.map(function (x) { return '<col style="width:' + x[1] + '%">'; }).join('') + '</colgroup><thead><tr>' +
+        c.innerHTML = '<div class="row"><div class="grow"><h2 style="margin:0">' + esc(g.title) + '</h2>' + (g.sub ? '<p class="muted" style="margin:4px 0 0">' + esc(g.sub) + '</p>' : '') + '</div><button class="btn alt sm" data-p>Print</button><button class="btn alt sm" data-c>Copy</button>' + (navigator.share ? '<button class="btn alt sm" data-sh>Share</button>' : '') + '<button class="btn sm" data-r>Receive delivery</button>' + (g.req ? adminBtns(g.req.id, g.req.status) : '') + '</div><div class="tbl"><table class="fx"><colgroup>' + lay.map(function (x) { return '<col style="width:' + x[1] + '%">'; }).join('') + '</colgroup><thead><tr>' +
           lay.map(function (x) { return '<th' + (COLDEF[x[0]][1] ? ' class="num"' : '') + '>' + esc(COLDEF[x[0]][0]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
           g.es.map(function (e) { return '<tr class="click" data-item="' + e.item.id + '">' + lay.map(function (x) { return cellFor(x[0], e); }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
         $('[data-p]', c).onclick = function () { printHtml(g.title, docFor([g]), 'A4'); };
@@ -365,6 +385,7 @@
         };
         out.appendChild(c);
       });
+      if (!out.dataset.adm) { out.dataset.adm = '1'; bindAdmin(out, function () { return R.show('buy'); }); }
       out.onclick = function (ev) {
         var u = ev.target.closest('[data-un]'); if (u) { delete st.sel[u.dataset.un]; delete st.actual['I' + u.dataset.un]; persist(); list(); head(); return; }
         if (ev.target.closest('input,button,select,a,.numstep')) return;
@@ -435,7 +456,7 @@
     box.innerHTML = '<div class="card"><div class="row"><h2 class="grow">' + (mine ? 'My requests' : 'History') + '</h2><button class="btn alt sm" id="hp">Print slips (A6)</button><button class="btn alt sm" id="hc">CSV</button></div></div>' +
       fbar([{ t: 's', k: 'q', ph: 'ID, e.g. REQ-1104-1' }].concat(mine || !canMov ? [] : [{ t: 's', k: 'item', ph: 'Item name (movements)' }]).concat([
         { t: 'c', k: 'type', ph: 'Any type', o: [{ value: 'Transfer', label: 'Station request' }, { value: 'Purchase', label: 'Buy request' }] },
-        { t: 'c', k: 'status', ph: 'Any status', o: ['Pending', 'Partial', 'Released', 'Received', 'Rejected'] }, { t: 'c', k: 'stn', ph: 'Any station', o: sts },
+        { t: 'c', k: 'status', ph: 'Any status', o: ['Pending', 'Partial', 'Released', 'Received', 'Rejected', 'Cancelled'] }, { t: 'c', k: 'stn', ph: 'Any station', o: sts },
         { t: 'd', k: 'from', ph: 'From' }, { t: 'd', k: 'to', ph: 'To' }]), st) + '<div id="hr"></div>';
     var out = $('#hr', box), last = { reqs: [], mv: [] }, timer;
     async function run() {
@@ -462,7 +483,7 @@
       if (r[0].error) { out.innerHTML = '<div class="card">' + esc(r[0].error.message) + '</div>'; return; }
       last.reqs = r[0].data || []; last.mv = (r[1] && r[1].data) || [];
       out.innerHTML = last.reqs.map(function (x) {
-        return '<div class="card"><div class="row"><h2 class="grow">' + esc(x.id) + (x.station ? ' · ' + esc(x.station) : '') + '</h2>' + pill(x.status) + '<button class="btn alt sm" data-pr="' + esc(x.id) + '">Print A6</button>' + (R.role() === 'Admin' && ['Pending', 'Rejected'].indexOf(x.status) >= 0 ? '<button class="btn alt sm" data-del="' + esc(x.id) + '">Delete</button>' : '') + '</div>' +
+        return '<div class="card"><div class="row"><h2 class="grow">' + esc(x.id) + (x.station ? ' · ' + esc(x.station) : '') + '</h2>' + pill(x.status) + '<button class="btn alt sm" data-pr="' + esc(x.id) + '">Print A6</button>' + adminBtns(x.id, x.status) + '</div>' +
           '<p class="muted">' + esc(x.requester_name || '') + ' · ' + esc(when(x.created_at)) + (x.notes ? ' · ' + esc(x.notes) : '') + '</p><div class="tbl"><table><tbody>' +
           (x.request_items || []).map(function (l) { return '<tr><td>' + esc(l.items ? l.items.name : '') + '</td><td class="num">' + fmt(l.fulfilled_qty) + ' / ' + fmt(l.requested_qty) + ' ' + esc(l.unit || '') + '</td><td>' + pill(l.status) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
       }).join('') || '<div class="card">' + R.ui.empty(mine ? 'req' : 'search', mine ? 'No requests yet' : 'No requests found', mine ? 'Tap the + button to send your first request.' : 'Try a different ID, status or date range.') + '</div>';
@@ -475,10 +496,10 @@
     function later() { clearTimeout(timer); timer = setTimeout(run, 250); }
     wire(box, st, later);
     out.addEventListener('click', function (e) {
-      var p = e.target.closest('[data-pr]'), d = e.target.closest('[data-del]');
+      var p = e.target.closest('[data-pr]');
       if (p) printSlips(last.reqs.filter(function (x) { return x.id === p.dataset.pr; }), p.dataset.pr);
-      if (d) R.ui.confirm('Delete ' + d.dataset.del + '? This cannot be undone.', { title: 'Delete request', danger: true, ok: 'Delete' }).then(function (ok) { if (ok) act(d, async function () { await q(sb.from('requests').delete().eq('id', d.dataset.del)); toast('Deleted'); run(); }); });
     });
+    bindAdmin(out, run);
     $('#hp', box).onclick = function () { printSlips(last.reqs, 'Request slips'); };
     $('#hc', box).onclick = function () {
       var rows = [['Request', 'Type', 'Station', 'Requester', 'Status', 'Created', 'Item', 'Requested', 'Fulfilled', 'Unit']];
