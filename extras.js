@@ -149,7 +149,7 @@
     var tally = { '': all.length, CRITICAL: 0, LOW: 0, OK: 0 };
     all.forEach(function (i) { tally[i.status === 'CRITICAL' ? 'CRITICAL' : i.status === 'LOW' ? 'LOW' : 'OK'] += 1; });
     var CH = [['', 'All', null], ['CRITICAL', 'Critical / out', 'var(--crit)'], ['LOW', 'Low', 'var(--warn)'], ['OK', 'Optimal', 'var(--ok)']];
-    box.innerHTML = '<div class="card-head"><h2 style="font:600 18px var(--display)">Stock levels</h2><span class="sp"></span><button class="btn alt sm" id="sp">' + R.icon('print') + 'Print</button><button class="btn alt sm" id="sc">' + R.icon('receive') + 'CSV</button></div>' +
+    box.innerHTML = '<div class="card-head"><h2 style="font:600 19px var(--display)">Stock levels</h2><span class="sp"></span><button class="btn alt sm" id="sp">' + R.icon('print') + 'Print</button><button class="btn alt sm" id="sc">' + R.icon('receive') + 'CSV</button></div>' +
       '<div class="chips" id="chips"></div>' +
       fbar([{ t: 's', k: 'q', ph: 'Search by item name…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All stock rooms', o: flat('stocked_at') }, { t: 'c', k: 'stn', ph: 'All stations', o: flat('used_by') },
         { t: 'c', k: 'sup', ph: 'All suppliers', o: sups.map(function (s) { return { value: s.id, label: s.name }; }) }, { t: 'c', k: 'sort', ph: 'Sort: urgent first', o: SORT_OPTS }], st) +
