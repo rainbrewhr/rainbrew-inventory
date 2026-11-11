@@ -12,15 +12,16 @@
   var REQUESTERS = ['Admin', 'Stock Keeper', 'Station Staff', 'Requester'];
 
   var APPS = {
-    all: { title: '', tabs: ['dash', 'stock', 'release', 'receive', 'buy', 'req', 'buyreq', 'mine', 'waste', 'swaste', 'count', 'reports', 'items', 'places', 'users', 'history'] },
-    admin: { title: 'Admin', tabs: ['dash', 'stock', 'release', 'receive', 'buy', 'req', 'buyreq', 'waste', 'count', 'reports', 'items', 'places', 'users', 'history'] },
-    stockkeeper: { title: 'Stock Keeper', tabs: ['release', 'receive', 'waste', 'count', 'stock', 'dash', 'reports', 'history'] },
+    all: { title: '', tabs: ['dash', 'stock', 'release', 'prod', 'receive', 'buy', 'req', 'buyreq', 'mine', 'waste', 'swaste', 'count', 'reports', 'items', 'places', 'users', 'history'] },
+    admin: { title: 'Admin', tabs: ['dash', 'stock', 'release', 'prod', 'receive', 'buy', 'req', 'buyreq', 'waste', 'count', 'reports', 'items', 'places', 'users', 'history'] },
+    stockkeeper: { title: 'Stock Keeper', tabs: ['release', 'prod', 'receive', 'waste', 'count', 'stock', 'dash', 'reports', 'history'] },
     procurement: { title: 'Procurement', tabs: ['buy', 'release', 'receive', 'stock', 'dash', 'reports', 'history'] },
     request: { title: 'Request', tabs: ['req', 'buyreq', 'mine', 'stock', 'swaste'] }
   };
   var TABS = {
     dash: { label: 'Dashboard', roles: OPS.concat('Viewer'), view: vDash },
     release: { label: 'Release', roles: OPS, view: function (b) { return RB.views.release(b); } },
+    prod: { label: 'Production', roles: ['Admin', 'Stock Keeper'], view: function (b) { return RB.views.prod(b); } },
     receive: { label: 'Receive delivery', roles: OPS, view: vReceive },
     buy: { label: 'Buy list', roles: OPS, view: function (b) { return RB.views.buy(b); } },
     waste: { label: 'Waste', roles: ['Admin', 'Stock Keeper'], view: function (b) { return vWaste(b, null); } },
@@ -64,6 +65,7 @@
     history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
     mine: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/>',
     menu: '<path d="M3 6h18M3 12h18M3 18h18"/>',
+    prod: '<path d="M17 21a1 1 0 0 0 1-1v-5.35c0-.457.316-.844.727-1.041a4 4 0 0 0-2.134-7.589 5 5 0 0 0-9.186 0 4 4 0 0 0-2.134 7.588c.411.198.727.585.727 1.041V20a1 1 0 0 0 1 1Z"/><path d="M6 17h12"/>',
     room: '<path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35z"/><path d="M6 18h12M6 14h12"/>',
     print: '<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
     plus: '<path d="M12 5v14M5 12h14"/>', minus: '<path d="M5 12h14"/>', check: '<path d="M20 6L9 17l-5-5"/>',
@@ -81,7 +83,7 @@
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>'
   };
-  var TAB_ICON = { dash: 'dash', stock: 'stock', release: 'release', receive: 'receive', buy: 'buy', req: 'req', buyreq: 'buyreq', waste: 'waste', count: 'count', reports: 'reports', items: 'items', places: 'places', users: 'users', history: 'history', mine: 'mine', swaste: 'waste' };
+  var TAB_ICON = { prod: 'prod', dash: 'dash', stock: 'stock', release: 'release', receive: 'receive', buy: 'buy', req: 'req', buyreq: 'buyreq', waste: 'waste', count: 'count', reports: 'reports', items: 'items', places: 'places', users: 'users', history: 'history', mine: 'mine', swaste: 'waste' };
   function icon(name, cls) { return '<svg class="ic' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || '') + '</svg>'; }
   function initials(name) { return String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(function (p) { return p[0].toUpperCase(); }).join('') || '?'; }
 
@@ -89,7 +91,7 @@
   var PAGES = [
     { id: 'home', label: 'Dashboard', sub: 'Today at a glance', icon: 'dash', tabs: ['dash'] },
     { id: 'stock', label: 'Stock', sub: 'Levels and item details', icon: 'stock', tabs: ['stock'] },
-    { id: 'room', label: 'Stock room', sub: 'Release, count, waste', icon: 'room', tabs: ['release', 'count', 'waste'] },
+    { id: 'room', label: 'Stock room', sub: 'Release, production, count', icon: 'room', tabs: ['release', 'prod', 'count', 'waste'] },
     { id: 'buying', label: 'Buying', sub: 'Buy list and deliveries', icon: 'buy', tabs: ['buy', 'receive'] },
     { id: 'requests', label: 'Requests', sub: 'Ask for stock or to buy', icon: 'req', tabs: ['req', 'buyreq', 'mine', 'swaste'] },
     { id: 'records', label: 'Records', sub: 'Reports and history', icon: 'reports', tabs: ['reports', 'history'] },
@@ -698,7 +700,7 @@
         };
       });
       var first = m.querySelector('input,select,textarea') || m.querySelector('[data-a]:last-child'); if (first) setTimeout(function () { first.focus(); }, 40);
-      m.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { var go = m.querySelector('[data-a].primary-go'); if (go) go.click(); } });
+      m.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.tagName === 'INPUT' && !e.target.classList.contains('lb-q')) { var go = m.querySelector('[data-a].primary-go'); if (go) go.click(); } });
     });
   }
   function confirmBox(message, o) {
@@ -731,7 +733,7 @@
     drawerEl.classList.remove('open'); $('#dscrim').classList.remove('open'); drawerId = null;
     if (drawerTok) { var t = drawerTok; drawerTok = null; ovRelease(t); }
   }
-  var MOVE = { RECEIVE: ['receive', 'in', 'Received'], RELEASE: ['release', 'out', 'Released'], ADJUST: ['sliders', 'out', 'Adjusted'], WASTE: ['waste', 'out', 'Waste'], OPENING: ['stock', 'in', 'Opening balance'] };
+  var MOVE = { RECEIVE: ['receive', 'in', 'Received'], RELEASE: ['release', 'out', 'Released'], ADJUST: ['sliders', 'out', 'Adjusted'], WASTE: ['waste', 'out', 'Waste'], OPENING: ['stock', 'in', 'Opening balance'], PRODUCE: ['prod', 'in', 'Made'], PRODUCE_USE: ['prod', 'out', 'Used in production'] };
   function statusTone(st) { return st === 'CRITICAL' ? 'crit' : st === 'LOW' ? 'warn' : 'ok'; }
   async function openItem(id) {
     var it = S.map.get(id); if (!it) return;
