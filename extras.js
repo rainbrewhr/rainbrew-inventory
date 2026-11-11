@@ -85,7 +85,27 @@
       el.addEventListener(el.type === 'search' ? 'input' : 'change', function () { st[el.dataset.k] = el.value; cb(); });
     });
   }
+  /* ---------- sections: Commissary / Frozen & packed / Main store (one choice, remembered across screens) ---------- */
+  var SECTIONS = [['', 'All', null], ['Main store', 'Main store', 'var(--sec-main)'], ['Commissary', 'Commissary', 'var(--sec-com)'], ['Frozen & packed', 'Frozen & packed', 'var(--sec-fro)']];
+  try { S.section = localStorage.getItem('rb_sec') || ''; } catch (e) { S.section = ''; }
+  function secOf(i) { return i.section || 'Main store'; }
+  function inSec(i) { return !S.section || secOf(i) === S.section; }
+  function secTitle(t) { return t + (S.section ? ' · ' + S.section : ''); }
+  function secBar() {
+    var act = S.items.filter(function (i) { return i.active; });
+    return '<div class="secbar" role="group" aria-label="Section">' + SECTIONS.map(function (x) {
+      var n = x[0] ? act.filter(function (i) { return secOf(i) === x[0]; }).length : act.length;
+      return '<button type="button" data-secb="' + esc(x[0]) + '" aria-pressed="' + (S.section === x[0]) + '">' + (x[2] ? '<i style="background:' + x[2] + '"></i>' : '') + esc(x[1]) + ' <b>' + n + '</b></button>';
+    }).join('') + '</div>';
+  }
+  function wireSec(box) {
+    box.querySelectorAll('[data-secb]').forEach(function (b) {
+      b.onclick = function () { S.section = b.dataset.secb; try { localStorage.setItem('rb_sec', S.section); } catch (e) { /* ignore */ } R.show(R.current()); };
+    });
+  }
+  R.secOf = secOf;
   function hit(item, st) {
+    if (!inSec(item)) return false;
     var t = (st.q || '').toLowerCase();
     if (t && item.name.toLowerCase().indexOf(t) < 0) return false;
     if (st.cat && item.category !== st.cat) return false;
@@ -145,12 +165,12 @@
     if (np.status !== undefined) st.status = np.status;
     if (np.cat !== undefined) { st.cat = np.cat; st.q = ''; }
     if (np.q) st.q = np.q;
-    var all = S.items.filter(function (i) { return i.active; });
+    var all = S.items.filter(function (i) { return i.active && inSec(i); });
     var tally = { '': all.length, CRITICAL: 0, LOW: 0, OK: 0, EMPTY: 0 };
     all.forEach(function (i) { tally[bucket(i)] += 1; });
     var CH = [['', 'All', null], ['CRITICAL', 'Critical / out', 'var(--crit)'], ['LOW', 'Low', 'var(--warn)'], ['OK', 'In stock', 'var(--ok)'], ['EMPTY', 'Not stocked', 'var(--line2)']];
     box.innerHTML = '<div class="card-head"><h2 style="font:600 19px var(--display)">Stock levels</h2><span class="sp"></span><button class="btn alt sm" id="sp">' + R.icon('print') + 'Print</button><button class="btn alt sm" id="sc">' + R.icon('receive') + 'CSV</button></div>' +
-      '<div class="chips" id="chips"></div>' +
+      secBar() + '<div class="chips" id="chips"></div>' +
       fbar([{ t: 's', k: 'q', ph: 'Search by item name…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All stock rooms', o: flat('stocked_at') }, { t: 'c', k: 'stn', ph: 'All stations', o: flat('used_by') },
         { t: 'c', k: 'sup', ph: 'All suppliers', o: sups.map(function (s) { return { value: s.id, label: s.name }; }) }, { t: 'c', k: 'sort', ph: 'Sort: urgent first', o: SORT_OPTS }], st) +
       '<div class="card tbl" style="padding:6px 8px"><table><thead><tr><th>Item</th><th class="hm">Location</th><th class="num">Stock</th><th class="num hm">Reorder</th><th>Status</th><th></th></tr></thead><tbody id="sb"></tbody></table></div><p class="muted" id="sn" style="text-align:center"></p>';
@@ -167,11 +187,11 @@
       $('#sn', box).textContent = list.length + ' of ' + all.length + ' items shown';
       chips();
     }
-    wire(box, st, draw); draw();
+    wire(box, st, draw); wireSec(box); draw();
     $('#chips', box).onclick = function (e) { var c = e.target.closest('[data-ch]'); if (c) { st.status = c.dataset.ch; draw(); } };
     $('#sb', box).onclick = function (e) { var tr = e.target.closest('tr[data-id]'); if (tr) R.openItem(tr.dataset.id); };
     $('#sp', box).onclick = function () {
-      printHtml('Stock levels', docHead('Stock Levels', list.length + ' item(s)') + table(['Item', 'Category', 'Location', 'Stock', 'Unit', 'Reorder', 'Status'], list.map(function (i) { return [i.name, i.category, (i.stocked_at || []).join(' / '), fmt(i.current_stock), i.unit, fmt(i.reorder_point), i.status]; }), [3, 5]));
+      printHtml('Stock levels', docHead(secTitle('Stock Levels'), list.length + ' item(s)') + table(['Item', 'Category', 'Location', 'Stock', 'Unit', 'Reorder', 'Status'], list.map(function (i) { return [i.name, i.category, (i.stocked_at || []).join(' / '), fmt(i.current_stock), i.unit, fmt(i.reorder_point), i.status]; }), [3, 5]));
     };
     $('#sc', box).onclick = function () { csv('stock-levels-' + today() + '.csv', [['Item', 'Category', 'Location', 'Stock', 'Unit', 'Reorder point', 'Critical level', 'PAR', 'Supplier', 'Status']].concat(list.map(function (i) { return [i.name, i.category, (i.stocked_at || []).join(' / '), i.current_stock, i.unit, i.reorder_point, i.critical_level, i.par_target, sm[i.supplier_id] || '', i.status]; }))); };
   };
@@ -269,7 +289,7 @@
       purs.forEach(function (p) { (p.request_items || []).forEach(function (l) { if (ids.indexOf(l.item_id) >= 0) { delete st.actual['L' + l.id]; delete st.lineQty['L' + l.id]; } }); });
       persist();
     };
-    var all = S.items.filter(function (i) { return i.active; });
+    var all = S.items.filter(function (i) { return i.active && inSec(i); });
     var nsel = function () { return entries().length; };
     function alt(i) { return [sm[i.alt_supplier_1_id], sm[i.alt_supplier_2_id]].filter(Boolean).join(', '); }
     st.view = 'pick'; // always open on the full product list; "To buy" is one tap away
@@ -289,7 +309,7 @@
       var tally = { '': all.length, CRITICAL: 0, LOW: 0, OK: 0, EMPTY: 0, ASKED: 0 };
       all.forEach(function (i) { tally[bucket(i)] += 1; if (asked[i.id]) tally.ASKED += 1; });
       var CH = [['', 'All', null], ['CRITICAL', 'Critical / out', 'var(--crit)'], ['LOW', 'Low', 'var(--warn)'], ['OK', 'In stock', 'var(--ok)'], ['EMPTY', 'Not stocked', 'var(--line2)'], ['ASKED', 'Asked by staff', 'var(--accent)']];
-      body.innerHTML = '<div class="chips" id="bch"></div>' +
+      body.innerHTML = secBar() + '<div class="chips" id="bch"></div>' +
         fbar([{ t: 's', k: 'q', ph: 'Search item…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All stock rooms', o: flat('stocked_at') }, { t: 'c', k: 'sup', ph: 'All suppliers', o: sups.map(function (s) { return { value: s.id, label: s.name }; }) }, { t: 'c', k: 'sort', ph: 'Sort: urgent first', o: SORT_OPTS }], st) +
         '<div class="card" style="padding:12px 16px"><div class="row" style="gap:8px"><button class="btn alt sm" id="bsl"></button><button class="btn alt sm" id="bss">Select all shown</button><button class="btn alt sm" id="bsc">Clear selection</button><span class="sp" style="flex:1"></span><button class="btn sm" id="bgo"></button></div></div>' +
         '<div class="card tbl" style="padding:6px 8px"><table class="fx"><colgroup>' + PICK_W.map(function (w) { return '<col style="width:' + w + '%">'; }).join('') + '</colgroup><thead><tr><th>Item</th><th class="num">In stock</th><th class="num">Reorder at</th><th>Status</th><th>Supplier</th><th class="num">Order qty</th></tr></thead><tbody id="bp2"></tbody></table></div><p class="muted" id="bpn" style="text-align:center"></p>';
@@ -334,7 +354,7 @@
       $('#bss', box).onclick = function () { shown.forEach(function (i) { toggle(i.id, true); }); draw(); };
       $('#bsc', box).onclick = function () { st.sel = {}; persist(); draw(); };
       $('#bgo', box).onclick = function () { st.view = 'list'; render(); };
-      wire(box, st, draw); draw();
+      wire(box, st, draw); wireSec(body); draw();
     }
 
     /* ---- step 2: everything to buy. Staff purchase requests keep their own lines (never merged); your own ticks sit beside them ---- */
@@ -351,10 +371,11 @@
     }
     function boughtOf(e) { return st.actual[e.key] == null ? '' : st.actual[e.key]; }
     function list() {
-      var es = entries(); st.mode = st.mode || 'sup';
-      body.innerHTML = '<div class="seg" id="bmode">' + MODES.map(function (m) { return '<button data-m="' + m[0] + '" class="' + (st.mode === m[0] ? 'on' : '') + '">' + m[1] + '</button>'; }).join('') + '</div><div id="bg"></div>';
+      var es = entries().filter(function (e) { return inSec(e.item); }); st.mode = st.mode || 'sup';
+      body.innerHTML = secBar() + '<div class="seg" id="bmode">' + MODES.map(function (m) { return '<button data-m="' + m[0] + '" class="' + (st.mode === m[0] ? 'on' : '') + '">' + m[1] + '</button>'; }).join('') + '</div><div id="bg"></div>';
       var out = $('#bg', box), nreq = purs.filter(function (p) { return R.openLines(p).length; }).length;
       $('#bn', box).textContent = es.length + ' line(s) to buy · ' + nreq + ' staff request(s)';
+      wireSec(body);
       $('#bmode', box).onclick = function (ev) { var b = ev.target.closest('button[data-m]'); if (b) { st.mode = b.dataset.m; persist(); list(); } };
       // groups for the chosen view
       var groups = [];
@@ -386,7 +407,7 @@
       }
       function docFor(gs) {
         if (st.mode === 'req') return gs.map(function (g) { return '<div class="slip">' + docHead(g.req ? 'Purchase Request ' + g.req.id : 'Purchase list (procurement)', (g.req ? 'Requested by ' + (g.req.requester_name || 'staff') + ' · ' : '') + (g.sub || '')) + docTable(g.es, 'req') + '<p class="sig">Prepared / checked by: ____________________</p></div>'; }).join('');
-        return docHead('Procurement Buy List', today()) + gs.map(function (g) { return (st.mode === 'sup' ? '<h2>' + esc(g.title) + '</h2>' : '') + docTable(g.es, st.mode); }).join('') + '<p class="sig">Prepared / checked by: ____________________</p>';
+        return docHead(secTitle('Procurement Buy List'), today()) + gs.map(function (g) { return (st.mode === 'sup' ? '<h2>' + esc(g.title) + '</h2>' : '') + docTable(g.es, st.mode); }).join('') + '<p class="sig">Prepared / checked by: ____________________</p>';
       }
       function copyText(g) { return g.title + '\n' + g.es.map(function (e) { return '- ' + e.item.name + ': ' + fmt(e.qty) + ' ' + R.unitFor(e.item) + (e.req ? ' (' + e.req.id + ')' : ''); }).join('\n'); }
       if (!groups.length) out.innerHTML = '<div class="card">' + R.ui.empty('buy', 'Nothing to buy yet', 'Staff buy requests appear here by themselves. For anything else, tick products in All products.', '<button class="btn alt" id="bto" style="margin-top:14px">Choose items</button>') + '</div>';
@@ -451,9 +472,9 @@
     await R.loadCatalog(true);
     var sts = await R.stations(), st = F.count;
     box.innerHTML = '<div class="card"><h2>Stock count</h2><label>Where are you counting?</label><select id="cw">' + opts([{ value: '', label: 'Stock room (adjusts stock)' }].concat(sts.map(function (s) { return { value: s, label: s + ' (log only)' }; })), st.where || '') + '</select>' +
-      '<p class="muted" id="ch"></p></div>' + fbar([{ t: 's', k: 'q', ph: 'Filter items…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All stock rooms', o: flat('stocked_at') }], st) +
+      '<p class="muted" id="ch"></p></div>' + secBar() + fbar([{ t: 's', k: 'q', ph: 'Filter items…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All stock rooms', o: flat('stocked_at') }], st) +
       '<div class="card tbl"><table><thead><tr><th>Item</th><th class="num" id="sh">System</th><th class="num">Counted</th></tr></thead><tbody id="ct"></tbody></table></div><p class="muted" id="cn"></p><button class="btn" id="cgo">Post count</button>';
-    var items = S.items.filter(function (i) { return i.active; });
+    var items = S.items.filter(function (i) { return i.active && inSec(i); });
     function station() { return $('#cw', box).value; }
     st.counts = st.counts || {};
     function bucket() { var k = station() || '_room'; return st.counts[k] || (st.counts[k] = {}); }
@@ -469,7 +490,7 @@
     }
     $('#cw', box).onchange = function () { st.where = station(); draw(); };
     $('#ct', box).addEventListener('input', function (e) { var el = e.target.closest('input[data-id]'); if (!el) return; if (el.value === '') delete bucket()[el.dataset.id]; else bucket()[el.dataset.id] = el.value; tally(); });
-    wire(box, st, draw); draw(); tally();
+    wire(box, st, draw); wireSec(box); draw(); tally();
     $('#cgo', box).onclick = function (e) {
       act(e.currentTarget, async function () {
         var s = station();
@@ -646,7 +667,7 @@
     var pend = people.filter(function (p) { return !p.approved; }).length, nost = people.filter(function (p) { return p.active && p.approved && (p.role === 'Station Staff' || p.role === 'Requester') && !p.station; }).map(function (p) { return p.name; });
     var NEED = { nosup: function (i) { return !i.supplier_id; }, noreorder: function (i) { return i.reorder_point == null; }, nocrit: function (i) { return i.critical_level == null; }, nopar: function (i) { return i.par_target == null; }, noloc: function (i) { return !(i.stocked_at || []).length; }, neg: function (i) { return Number(i.current_stock) < 0; }, inactive: function (i) { return !i.active; } };
     var COLS = [
-      { f: 'name', h: 'Item', w: 240, k: 'txt' }, { f: 'current_stock', h: 'In stock', w: 84, k: 'ro', num: 1 }, { f: 'category', h: 'Category', w: 160, k: 'txt' }, { f: 'unit', h: 'Unit', w: 90, k: 'unit' },
+      { f: 'name', h: 'Item', w: 240, k: 'txt' }, { f: 'current_stock', h: 'In stock', w: 84, k: 'ro', num: 1 }, { f: 'category', h: 'Category', w: 160, k: 'txt' }, { f: 'section', h: 'Section', w: 160, k: 'sec' }, { f: 'unit', h: 'Unit', w: 90, k: 'unit' },
       { f: 'supplier_id', h: 'Supplier', w: 180, k: 'sup' }, { f: 'purchase_unit', h: 'Buy unit', w: 100, k: 'txt' }, { f: 'order_multiple', h: 'Order in', w: 90, k: 'num', num: 1 }, { f: 'lead_time_days', h: 'Lead days', w: 90, k: 'num', num: 1 },
       { f: 'reorder_point', h: 'Reorder at', w: 100, k: 'num', num: 1 }, { f: 'critical_level', h: 'Critical at', w: 100, k: 'num', num: 1 }, { f: 'par_target', h: 'PAR', w: 90, k: 'num', num: 1 },
       { f: 'alt_supplier_1_id', h: 'Alt supplier 1', w: 170, k: 'sup' }, { f: 'alt_supplier_2_id', h: 'Alt supplier 2', w: 170, k: 'sup' }, { f: 'stocked_at', h: 'Stock room', w: 170, k: 'arr' }, { f: 'used_by', h: 'Used by', w: 190, k: 'arr' },
@@ -665,7 +686,7 @@
         sups.map(function (sp) { var n = S.items.filter(function (i) { return i.supplier_id === sp.id || i.alt_supplier_1_id === sp.id || i.alt_supplier_2_id === sp.id; }).length; return '<tr data-sid="' + sp.id + '"><td><input data-sf value="' + esc(sp.name) + '"></td><td class="num">' + n + '</td><td>' + (n ? '' : '<button class="btn alt sm" data-sdel>Delete</button>') + '</td></tr>'; }).join('') + '</tbody></table></div></details></div>' +
       fbar([{ t: 's', k: 'q', ph: 'Search items…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All stock rooms', o: flat('stocked_at') }, { t: 'c', k: 'sup', ph: 'All suppliers', o: supOpts },
         { t: 'c', k: 'need', ph: 'All items', o: [needLabel('nosup', 'No supplier'), needLabel('noreorder', 'No reorder point'), needLabel('nocrit', 'No critical level'), needLabel('nopar', 'No PAR'), needLabel('noloc', 'No location'), needLabel('neg', 'Negative stock'), { value: 'inactive', label: 'Inactive' }] }, { t: 'c', k: 'sort', ph: 'Sort: name (A–Z)', o: SORT_OPTS }], st) +
-      '<div class="row" style="margin:0 0 10px"><button class="btn alt sm" id="isug">Suggest levels from usage</button><span class="muted" id="isugn"></span></div>' +
+      secBar() + '<div class="row" style="margin:0 0 10px"><button class="btn alt sm" id="isug">Suggest levels from usage</button><span class="muted" id="isugn"></span></div>' +
       '<p class="muted" id="ihint" style="margin:0 0 8px"><span id="icount"></span> · Click a cell and type. <b>Tab</b> moves right, <b>Enter</b> moves down, <b>Ctrl+D</b> fills down, and you can paste cells copied from Google Sheets. Changes save by themselves. <span id="isave" class="isave"></span></p>' +
       '<div class="sheet-wrap"><table class="sheet items"><colgroup>' + COLS.map(function (c) { return '<col style="width:' + c.w + 'px">'; }).join('') + '</colgroup><thead><tr>' + COLS.map(function (c) { return '<th' + (c.num ? ' class="num"' : '') + '>' + esc(c.h) + '</th>'; }).join('') + '</tr></thead><tbody id="it"></tbody></table></div>';
     var pendingSaves = 0;
@@ -674,6 +695,7 @@
       var v = i[c.f], lab = ' aria-label="' + esc(c.h) + '"';
       if (c.k === 'ro') return '<td class="num ro" data-label="' + esc(c.h) + '">' + fmt(v) + '</td>';
       if (c.k === 'chk') return '<td class="ck" data-label="' + esc(c.h) + '"><input type="checkbox" data-f="' + c.f + '"' + (v ? ' checked' : '') + lab + '></td>';
+      if (c.k === 'sec') return '<td data-label="Section"><select data-f="section"' + lab + '>' + opts(['Main store', 'Commissary', 'Frozen & packed'], v || 'Main store') + '</select></td>';
       if (c.k === 'unit') return '<td data-label="Unit"><select data-f="unit"' + lab + '>' + opts(UNITS.indexOf(v) >= 0 || !v ? UNITS : UNITS.concat([v]), v || '', '—') + '</select></td>';
       if (c.k === 'sup') return '<td data-label="' + esc(c.h) + '"><select data-f="' + c.f + '" class="sup-sel"' + lab + '>' + R.supOptions(S.suppliers, v || '', '—') + '</select></td>';
       if (c.k === 'arr') return '<td data-label="' + esc(c.h) + '"><input data-f="' + c.f + '" data-arr list="' + (c.f === 'stocked_at' ? 'll' : 'sl') + '" value="' + esc((v || []).join(', ')) + '"' + lab + '></td>';
@@ -685,7 +707,7 @@
       $('#icount', box).textContent = list.length + ' item(s)';
       $('#it', box).innerHTML = list.map(function (i) { return '<tr data-id="' + i.id + '">' + COLS.map(function (c) { return cell(i, c); }).join('') + '</tr>'; }).join('') || '<tr><td colspan="' + COLS.length + '" class="muted" style="padding:14px">No items match.</td></tr>';
     }
-    wire(box, st, draw); draw();
+    wire(box, st, draw); wireSec(box); draw();
     var missing = S.items.filter(function (i) { return i.active && (i.reorder_point == null || i.critical_level == null || i.par_target == null); }).length;
     $('#isugn', box).textContent = missing ? missing + ' item(s) have no reorder, critical or PAR level yet.' : 'Every item has its levels set.';
     $('#isug', box).onclick = function (ev) {
