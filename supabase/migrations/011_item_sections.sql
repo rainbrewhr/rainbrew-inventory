@@ -42,3 +42,12 @@ create or replace view public.item_stock with (security_invoker = true) as
    from public.items i
    left join (select item_id, sum(signed_qty) as qty, bool_or(signed_qty > 0) as ever
                 from public.stock_movements group by item_id) s on s.item_id = i.id;
+
+-- Raw meat, vegetables and raw fruits are kept in the commissary: set their stock location to COMMISSARY.
+-- The old locations are written to the audit trail first so the change can be undone.
+insert into public.audit_trail(user_name, action, record, detail)
+select 'System', 'MOVE TO COMMISSARY', name, 'was: ' || coalesce(array_to_string(stocked_at, ', '), '')
+  from public.items
+ where upper(category) in ('RAW MEAT','VEGETABLES','RAW FRUITS') and stocked_at is distinct from array['COMMISSARY'];
+update public.items set stocked_at = array['COMMISSARY']
+ where upper(category) in ('RAW MEAT','VEGETABLES','RAW FRUITS') and stocked_at is distinct from array['COMMISSARY'];
