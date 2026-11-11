@@ -4,7 +4,7 @@
   'use strict';
   var R = window.RB, S = R.S, sb = R.sb, esc = R.esc, fmt = R.fmt, when = R.when, $ = R.$, q = R.q, rpc = R.rpc, act = R.act, toast = R.toast, opts = R.opts, pill = R.pill, V = R.views;
   var UNITS = ['bottle', 'box', 'jar', 'g', 'kg', 'pack', 'pcs', 'sack', 'bag', 'gallon', 'roll', 'can'];
-  var F = { stock: {}, release: {}, buy: {}, hist: {}, items: {}, count: {}, rep: {} };
+  var F = { stock: {}, release: {}, buy: {}, hist: {}, items: {}, count: {}, rep: {}, prod: {} };
   var REQSEL = 'id,type,station,requester_name,status,notes,created_at,updated_at,request_items(id,item_id,requested_qty,fulfilled_qty,remaining_qty,status,unit,items(name,unit))';
   var nowFmt = new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' });
   function nowManila() { return nowFmt.format(new Date()); }
@@ -467,6 +467,100 @@
     render();
   };
 
+
+  /* ---------- Production log: ingredients used -> product made (commissary), with optional recipes ---------- */
+  V.prod = async function (box) {
+    await R.loadCatalog(true);
+    var res = await Promise.all([
+      q(sb.from('recipes').select('id,name,output_item_id,output_qty,notes,recipe_inputs(item_id,qty)').eq('active', true).order('name')),
+      q(sb.from('productions').select('id,ts,user_name,recipe_name,output_item_id,output_qty,expected_qty,note,production_inputs(item_id,qty)').order('ts', { ascending: false }).limit(15))
+    ]);
+    var recs = res[0], hist = res[1], st = F.prod, act_ = S.items.filter(function (i) { return i.active; });
+    function byName(v) { var t = String(v || '').trim().toUpperCase(); return act_.filter(function (i) { return String(i.name).toUpperCase() === t; })[0]; }
+    var names = act_.slice().sort(function (a, b) { return (R.secOf(b) === 'Commissary') - (R.secOf(a) === 'Commissary') || String(a.name).localeCompare(String(b.name)); });
+    var dl = '<datalist id="ppl">' + names.map(function (i) { return '<option value="' + esc(i.name) + '">'; }).join('') + '</datalist>';
+    function recLine(rc) {
+      var out = S.map.get(rc.output_item_id);
+      return '<div class="item"><div class="grow"><b>' + esc(rc.name) + '</b><div class="muted">' + fmt(rc.output_qty) + ' ' + esc(out ? out.unit || '' : '') + ' ' + esc(out ? out.name : '') + ' ← ' + rc.recipe_inputs.map(function (x) { var it = S.map.get(x.item_id); return fmt(x.qty) + ' ' + esc(it ? (it.unit || '') + ' ' + it.name : '?'); }).join(', ') + '</div></div>' +
+        '<button class="btn alt sm" data-redit="' + rc.id + '">Edit</button><button class="btn alt sm" data-rdel="' + rc.id + '">Remove</button></div>';
+    }
+    box.innerHTML = dl +
+      '<div class="card"><div class="row"><h2 class="grow">Record a batch</h2></div><p class="muted" style="margin:0 0 4px">Ingredients used come out of stock and the product made goes in, in one step.</p>' +
+      '<label for="prc">Recipe (optional)</label><select id="prc">' + opts(recs.map(function (x) { return { value: x.id, label: x.name }; }), st.recipe || '', 'No recipe: I will type what I used') + '</select>' +
+      '<div class="row" style="align-items:flex-end;margin-top:6px"><div class="field" style="flex:2;min-width:200px"><label for="pp">Product made</label><input id="pp" list="ppl" autocomplete="off" placeholder="Type to search, e.g. SIOMAI"></div>' +
+      '<div class="field" id="prb" style="flex:0 0 auto;min-width:0"><label for="pbn">Batches</label><input id="pbn" type="number" min="1" step="any" inputmode="decimal" value="' + esc(st.batches || 1) + '"></div>' +
+      '<div class="field" style="flex:0 0 auto;min-width:0"><label for="pq">Actual quantity made</label><input id="pq" type="number" min="0" step="any" inputmode="decimal" placeholder="0"></div></div>' +
+      '<p class="muted" id="pyd" style="margin:8px 0 0"></p>' +
+      '<label>Ingredients used</label><div id="lb"></div><p id="psh" style="margin:6px 0 0;color:var(--crit);font-weight:600"></p>' +
+      '<label for="pn">Note (optional)</label><input id="pn" placeholder="e.g. batch for weekend"><div style="margin-top:12px"><button class="btn" id="pgo">Record batch</button></div></div>' +
+      '<div class="card"><div class="row"><h2 class="grow">Recipes</h2><button class="btn alt sm" id="rnew">New recipe</button></div>' +
+      (recs.length ? '<div class="list">' + recs.map(recLine).join('') + '</div>' : R.ui.empty('prod', 'No recipes yet', 'Save the ingredients of a product once, then record a batch in two taps.')) + '</div>' +
+      '<div class="card"><h2>Recent batches</h2>' + (hist.length ? '<div class="list">' + hist.map(function (h) {
+        var out = S.map.get(h.output_item_id), y = h.expected_qty ? Math.round(h.output_qty / h.expected_qty * 100) : null;
+        return '<div class="item"><div class="grow"><b>' + esc(out ? out.name : '?') + ' · ' + fmt(h.output_qty) + ' ' + esc(out ? out.unit || '' : '') + '</b> ' + (y != null ? '<span class="pill ' + (y < 90 ? 'Pending' : 'OK') + '">' + y + '% of ' + fmt(h.expected_qty) + '</span>' : '') +
+          '<div class="muted">' + esc(h.id) + ' · ' + esc(when(h.ts)) + ' · ' + esc(h.user_name || '') + (h.recipe_name ? ' · ' + esc(h.recipe_name) : '') + '</div><div class="muted">Used: ' + h.production_inputs.map(function (x) { var it = S.map.get(x.item_id); return fmt(x.qty) + ' ' + esc(it ? (it.unit || '') + ' ' + it.name : '?'); }).join(', ') + (h.note ? ' · ' + esc(h.note) : '') + '</div></div></div>';
+      }).join('') + '</div>' : R.ui.empty('history', 'No batches yet', 'Recorded batches appear here with their yield.')) + '</div>';
+    var lb = R.lineBuilder($('#lb', box), { stock: true, noNew: true, key: 'prod' });
+    function curRecipe() { var id = $('#prc', box).value; return recs.filter(function (x) { return x.id === id; })[0]; }
+    function expected() { var rc = curRecipe(); return rc ? rc.output_qty * (Number($('#pbn', box).value) || 1) : null; }
+    function check() {
+      var short = [];
+      lb.lines.forEach(function (l) { if (Number(l.qty) > Number(l.item.current_stock)) short.push(l.item.name + ' (have ' + fmt(l.item.current_stock) + ', need ' + fmt(l.qty) + ')'); });
+      $('#psh', box).textContent = short.length ? 'Not enough in stock: ' + short.join('; ') : '';
+      var ex = expected(), got = Number($('#pq', box).value);
+      $('#pyd', box).textContent = ex ? 'Expected ' + fmt(ex) + (got ? ' · you made ' + fmt(got) + ' = ' + Math.round(got / ex * 100) + '% yield' : '') : '';
+      $('#prb', box).style.display = curRecipe() ? '' : 'none';
+    }
+    function applyRecipe() {
+      var rc = curRecipe(); st.recipe = rc ? rc.id : '';
+      if (rc) {
+        var b = Number($('#pbn', box).value) || 1, out = S.map.get(rc.output_item_id);
+        $('#pp', box).value = out ? out.name : ''; $('#pq', box).value = String(Math.round(rc.output_qty * b * 1000) / 1000);
+        lb.set(rc.recipe_inputs.map(function (x) { return { item: S.map.get(x.item_id), qty: String(Math.round(x.qty * b * 1000) / 1000) }; }).filter(function (x) { return x.item; }));
+      }
+      check();
+    }
+    $('#prc', box).onchange = function () { $('#pbn', box).value = 1; st.batches = 1; applyRecipe(); };
+    $('#pbn', box).oninput = function () { st.batches = $('#pbn', box).value; applyRecipe(); };
+    box.addEventListener('input', function (e) { if (e.target.closest('#lb') || e.target.id === 'pq') check(); });
+    box.addEventListener('click', function (e) { if (e.target.closest('#lb')) setTimeout(check, 0); });
+    check();
+    $('#pgo', box).onclick = function (ev) {
+      act(ev.currentTarget, async function () {
+        var out = byName($('#pp', box).value); if (!out) throw new Error('Pick the product from the list');
+        var made = Number($('#pq', box).value); if (!(made > 0)) throw new Error('Enter how much was made');
+        var ls = lb.lines.map(function (l) { return { item_id: l.item.id, qty: +l.qty }; }); if (!ls.length) throw new Error('Add the ingredients used, with quantities');
+        var rc = curRecipe();
+        var id = await rpc('log_production', { p_output_item: out.id, p_output_qty: made, p_inputs: ls, p_recipe: rc ? rc.id : null, p_expected: expected(), p_note: $('#pn', box).value.trim() || null });
+        lb.reset(); st.recipe = ''; toast('Recorded · ' + id + ' · ' + out.name + ' +' + fmt(made)); await R.loadCatalog(true); R.show('prod');
+      });
+    };
+    function editor(rc) {
+      var lbR = null;
+      var p = R.ui.popup({ title: rc ? 'Edit recipe' : 'New recipe', icon: 'prod', tone: 'accent',
+        body: '<label for="rn1">Recipe name</label><input id="rn1" value="' + esc(rc ? rc.name : '') + '" placeholder="e.g. Siomai (1 batch)"><div class="row" style="align-items:flex-end"><div class="field" style="flex:2;min-width:180px"><label for="rp1">Product made</label><input id="rp1" list="ppl" autocomplete="off" value="' + esc(rc && S.map.get(rc.output_item_id) ? S.map.get(rc.output_item_id).name : '') + '" placeholder="Type to search"></div><div class="field" style="flex:0 0 auto;min-width:0"><label for="rq1">One batch makes</label><input id="rq1" type="number" min="0" step="any" inputmode="decimal" value="' + esc(rc ? rc.output_qty : '') + '"></div></div><label>Ingredients for one batch</label><div id="rlb"></div><label for="rno">Notes (optional)</label><input id="rno" value="' + esc(rc && rc.notes || '') + '">',
+        actions: [{ label: 'Cancel', kind: 'alt', value: null }, { label: 'Save recipe', icon: 'check', kind: 'primary-go', run: async function (m) {
+          var out = byName($('#rp1', m).value); if (!out) throw new Error('Pick the product from the list');
+          var ls = lbR.lines.map(function (l) { return { item_id: l.item.id, qty: +l.qty }; });
+          await rpc('save_recipe', { p_id: rc ? rc.id : null, p_name: $('#rn1', m).value, p_output_item: out.id, p_output_qty: Number($('#rq1', m).value), p_inputs: ls, p_notes: $('#rno', m).value });
+          toast('Recipe saved'); R.show('prod'); return true;
+        } }] });
+      setTimeout(function () {
+        var m = document.querySelector('.modal'); if (!m) return;
+        $('.sheet', m).style.maxWidth = '640px';
+        lbR = R.lineBuilder($('#rlb', m), { stock: false, noNew: true });
+        if (rc) lbR.set(rc.recipe_inputs.map(function (x) { return { item: S.map.get(x.item_id), qty: String(x.qty) }; }).filter(function (x) { return x.item; }));
+      }, 0);
+      return p;
+    }
+    $('#rnew', box).onclick = function () { editor(null); };
+    box.addEventListener('click', function (e) {
+      var ed = e.target.closest('[data-redit]'), dl2 = e.target.closest('[data-rdel]');
+      if (ed) editor(recs.filter(function (x) { return x.id === ed.dataset.redit; })[0]);
+      if (dl2) R.ui.confirm('Remove this recipe? Batches already recorded stay in the log.', { title: 'Remove recipe', danger: true, ok: 'Remove' }).then(function (ok) { if (ok) act(dl2, async function () { await q(sb.from('recipes').update({ active: false }).eq('id', dl2.dataset.rdel)); toast('Recipe removed'); R.show('prod'); }); });
+    });
+  };
+
   /* ---------- Count (stock room adjusts; stations are snapshot logs) ---------- */
   V.count = async function (box) {
     await R.loadCatalog(true);
@@ -713,8 +807,8 @@
     $('#isug', box).onclick = function (ev) {
       act(ev.currentTarget, async function () {
         var DAYS = 60, since = new Date(Date.now() - DAYS * 864e5).toISOString();
-        var mv = await q(sb.from('stock_movements').select('item_id,signed_qty,ts').eq('type', 'RELEASE').gte('ts', since).limit(5000));
-        if (!mv.length) throw new Error('No releases in the last ' + DAYS + ' days to learn from yet.');
+        var mv = await q(sb.from('stock_movements').select('item_id,signed_qty,ts').in('type', ['RELEASE', 'PRODUCE_USE']).gte('ts', since).limit(5000));
+        if (!mv.length) throw new Error('No releases or production in the last ' + DAYS + ' days to learn from yet.');
         var first = mv.reduce(function (a, m) { return m.ts < a ? m.ts : a; }, mv[0].ts);
         var span = Math.max(7, Math.min(DAYS, Math.round((Date.now() - new Date(first).getTime()) / 864e5)));
         var used = {}; mv.forEach(function (m) { used[m.item_id] = (used[m.item_id] || 0) - Number(m.signed_qty); });
@@ -726,7 +820,7 @@
         if (!rows.length) throw new Error('No items without levels were released in the last ' + span + ' days. Type the rest into the sheet.');
         var cellIn = function (k, v, id) { return '<td class="num"><input data-nostep="1" type="number" min="0" step="any" inputmode="decimal" data-sg="' + k + '" value="' + v + '" aria-label="' + k + ' for ' + esc(id) + '" style="width:76px;text-align:right"></td>'; };
         var p = R.ui.popup({ title: 'Suggested levels', icon: 'sliders', tone: 'accent',
-          body: '<p class="muted" style="margin:0 0 10px">From what was released in the last ' + span + ' days: <b style="color:var(--text)">critical</b> = about 3 days of use, <b style="color:var(--text)">reorder</b> = 7 days, <b style="color:var(--text)">PAR</b> = 14 days. Change any number, untick what you do not want, then apply.</p>' +
+          body: '<p class="muted" style="margin:0 0 10px">From what was released or used in production in the last ' + span + ' days: <b style="color:var(--text)">critical</b> = about 3 days of use, <b style="color:var(--text)">reorder</b> = 7 days, <b style="color:var(--text)">PAR</b> = 14 days. Change any number, untick what you do not want, then apply.</p>' +
             '<div class="tbl" style="max-height:52vh;overflow:auto"><table><thead><tr><th><input type="checkbox" id="sgall" checked aria-label="Select all"></th><th>Item</th><th class="num">Used / week</th><th class="num">Critical at</th><th class="num">Reorder at</th><th class="num">PAR</th></tr></thead><tbody>' +
             rows.map(function (x) { return '<tr data-sid="' + x.item.id + '"><td><input type="checkbox" checked data-sgc aria-label="Apply to ' + esc(x.item.name) + '"></td><td>' + esc(x.item.name) + '<div class="muted">' + esc(x.item.unit || '') + ' · in stock ' + fmt(x.item.current_stock) + '</div></td><td class="num">' + fmt(Math.round(x.week * 10) / 10) + '</td>' + cellIn('critical_level', x.c, x.item.name) + cellIn('reorder_point', x.r, x.item.name) + cellIn('par_target', x.p, x.item.name) + '</tr>'; }).join('') + '</tbody></table></div>',
           actions: [{ label: 'Cancel', kind: 'alt', value: null }, { label: 'Apply to ticked items', icon: 'check', kind: 'primary-go', run: async function (m) {
