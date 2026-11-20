@@ -781,25 +781,242 @@
       fbar([{ t: 's', k: 'q', ph: 'Search items…' }, { t: 'c', k: 'cat', ph: 'All categories', o: cats() }, { t: 'c', k: 'loc', ph: 'All stock rooms', o: flat('stocked_at') }, { t: 'c', k: 'sup', ph: 'All suppliers', o: supOpts },
         { t: 'c', k: 'need', ph: 'All items', o: [needLabel('nosup', 'No supplier'), needLabel('noreorder', 'No reorder point'), needLabel('nocrit', 'No critical level'), needLabel('nopar', 'No PAR'), needLabel('noloc', 'No location'), needLabel('neg', 'Negative stock'), { value: 'inactive', label: 'Inactive' }] }, { t: 'c', k: 'sort', ph: 'Sort: name (A–Z)', o: SORT_OPTS }], st) +
       secBar() + '<div class="row" style="margin:0 0 10px"><button class="btn alt sm" id="isug">Suggest levels from usage</button><span class="muted" id="isugn"></span></div>' +
-      '<p class="muted" id="ihint" style="margin:0 0 8px"><span id="icount"></span> · Click a cell and type. <b>Tab</b> moves right, <b>Enter</b> moves down, <b>Ctrl+D</b> fills down, and you can paste cells copied from Google Sheets. Changes save by themselves. <span id="isave" class="isave"></span></p>' +
+      '<p class="muted" id="ihint" style="margin:0 0 8px"><span id="icount"></span> · Click a cell. <b>Arrow keys</b> move, <b>Enter</b> or typing edits, <b>Shift</b> + click or arrows selects a range, drag the small square to fill, <b>Ctrl+C</b> / <b>Ctrl+V</b> copy and paste (one value pastes into every selected cell), <b>Delete</b> clears, <b>Ctrl+Z</b> undoes. Changes save by themselves. <span id="isave" class="isave"></span></p>' +
       '<div class="sheet-wrap"><table class="sheet items"><colgroup>' + COLS.map(function (c) { return '<col style="width:' + c.w + 'px">'; }).join('') + '</colgroup><thead><tr>' + COLS.map(function (c) { return '<th' + (c.num ? ' class="num"' : '') + '>' + esc(c.h) + '</th>'; }).join('') + '</tr></thead><tbody id="it"></tbody></table></div>';
-    var pendingSaves = 0;
+    /* ---------- spreadsheet grid (Google Sheets style): select, arrows, range, drag-fill, copy / paste, undo ---------- */
+    var rows = [], G = { a: null, f: null }, undoS = [], redoS = [], pendingSaves = 0, clipM = null, editing = null, dragSel = false, fillDrag = null;
+    var wrap = $('.sheet-wrap', box), tb = $('#it', box), handle = document.createElement('div');
+    handle.className = 'fillh'; handle.hidden = true; wrap.appendChild(handle); wrap.tabIndex = 0;
+    var SECS = ['Main store', 'Commissary', 'Frozen & packed'];
+    function isSmall() { return window.matchMedia('(max-width:1023px)').matches; }
     function status(t, cls) { var el = $('#isave', box); if (el) { el.textContent = t; el.className = 'isave ' + (cls || ''); } }
-    function cell(i, c) {
-      var v = i[c.f], lab = ' aria-label="' + esc(c.h) + '"';
-      if (c.k === 'ro') return '<td class="num ro" data-label="' + esc(c.h) + '">' + fmt(v) + '</td>';
-      if (c.k === 'chk') return '<td class="ck" data-label="' + esc(c.h) + '"><input type="checkbox" data-f="' + c.f + '"' + (v ? ' checked' : '') + lab + '></td>';
-      if (c.k === 'sec') return '<td data-label="Section"><select data-f="section"' + lab + '>' + opts(['Main store', 'Commissary', 'Frozen & packed'], v || 'Main store') + '</select></td>';
-      if (c.k === 'unit') return '<td data-label="Unit"><select data-f="unit"' + lab + '>' + opts(UNITS.indexOf(v) >= 0 || !v ? UNITS : UNITS.concat([v]), v || '', '—') + '</select></td>';
-      if (c.k === 'sup') return '<td data-label="' + esc(c.h) + '"><select data-f="' + c.f + '" class="sup-sel"' + lab + '>' + R.supOptions(S.suppliers, v || '', '—') + '</select></td>';
-      if (c.k === 'arr') return '<td data-label="' + esc(c.h) + '"><input data-f="' + c.f + '" data-arr list="' + (c.f === 'stocked_at' ? 'll' : 'sl') + '" value="' + esc((v || []).join(', ')) + '"' + lab + '></td>';
-      if (c.k === 'num') return '<td class="num" data-label="' + esc(c.h) + '"><input data-f="' + c.f + '" data-num inputmode="decimal" autocomplete="off" value="' + esc(v == null ? '' : v) + '"' + lab + '></td>';
-      return '<td data-label="' + esc(c.h) + '"><input data-f="' + c.f + '"' + (c.f === 'category' ? ' list="cl"' : '') + ' autocomplete="off" value="' + esc(v || '') + '"' + lab + '></td>';
+    function supName(id) { var s = (S.suppliers || []).filter(function (x) { return x.id === id; })[0]; return s ? s.name : ''; }
+    function raw(i, c) {
+      var col = COLS[c], v = i[col.f];
+      if (col.k === 'chk') return v ? 'TRUE' : 'FALSE';
+      if (col.k === 'sup') return supName(v);
+      if (col.k === 'arr') return (v || []).join(', ');
+      return v == null ? '' : String(v);
     }
+    function shown(i, c) {
+      var col = COLS[c], v = i[col.f];
+      if (col.k === 'chk') return v ? 'On' : 'Off';
+      if (col.k === 'num' || col.k === 'ro') return v == null ? '' : fmt(v);
+      return raw(i, c);
+    }
+    function parseCell(c, text) {
+      var col = COLS[c], t = String(text == null ? '' : text).trim();
+      if (col.k === 'ro') return { ok: false, why: 'In stock is read-only. Use Adjust stock to change it.' };
+      if (col.k === 'num') { if (t === '') return { ok: true, v: null }; var n = Number(t.replace(/,/g, '')); return isFinite(n) && n >= 0 ? { ok: true, v: n } : { ok: false, why: '"' + t + '" is not a number' }; }
+      if (col.k === 'chk') { if (/^(true|yes|y|1|x|on)$/i.test(t)) return { ok: true, v: true }; if (/^(false|no|n|0|off)?$/i.test(t)) return { ok: true, v: false }; return { ok: false, why: 'Use TRUE or FALSE' }; }
+      if (col.k === 'sec') { var m = SECS.filter(function (s) { return s.toUpperCase() === t.toUpperCase(); })[0]; return m ? { ok: true, v: m } : { ok: false, why: '"' + t + '" is not a section' }; }
+      if (col.k === 'sup') { if (t === '') return { ok: true, v: null }; var sp = (S.suppliers || []).filter(function (s) { return String(s.name).toUpperCase() === t.toUpperCase(); })[0]; return sp ? { ok: true, v: sp.id } : { ok: false, why: '"' + t + '" is not a supplier in the list' }; }
+      if (col.k === 'arr') return { ok: true, v: t.split(',').map(function (x) { return x.trim().toUpperCase(); }).filter(Boolean) };
+      if (col.f === 'name') return t ? { ok: true, v: t.toUpperCase() } : { ok: false, why: 'An item needs a name' };
+      return { ok: true, v: t === '' ? null : t };
+    }
+    function tdAt(r, c) { return tb.rows[r] && tb.rows[r].cells[c]; }
+    function paintCell(r, c) { var td = tdAt(r, c); if (td && td.firstChild && !td.classList.contains('editing')) td.firstChild.textContent = shown(rows[r], c); }
+    function rowOfId(id) { for (var k = 0; k < rows.length; k++) if (rows[k].id === id) return k; return -1; }
+    function cOfField(f) { for (var k = 0; k < COLS.length; k++) if (COLS[k].f === f) return k; return -1; }
+    // apply [{id, f, old, val}] locally, then save in the background
+    function applyChanges(chs, track) {
+      if (!chs.length) return;
+      var byId = {};
+      chs.forEach(function (x) { var it = S.map.get(x.id); if (!it) return; it[x.f] = x.val; var r = rowOfId(x.id), c = cOfField(x.f); if (r >= 0 && c >= 0) paintCell(r, c); (byId[x.id] = byId[x.id] || {})[x.f] = x.val; });
+      if (track) { undoS.push(chs); if (undoS.length > 100) undoS.shift(); redoS.length = 0; }
+      var ids = Object.keys(byId); pendingSaves++; status('Saving ' + chs.length + ' cell' + (chs.length > 1 ? 's' : '') + '…', '');
+      (async function () {
+        var failed = null;
+        for (var n = 0; n < ids.length; n += 10) {
+          var res = await Promise.all(ids.slice(n, n + 10).map(function (id) { return sb.from('items').update(byId[id]).eq('id', id); }));
+          var bad = res.filter(function (x) { return x.error; })[0]; if (bad) { failed = bad.error.message; break; }
+        }
+        pendingSaves--;
+        if (failed) {
+          chs.forEach(function (x) { var it = S.map.get(x.id); if (it) it[x.f] = x.old; var r = rowOfId(x.id), c = cOfField(x.f); if (r >= 0 && c >= 0) paintCell(r, c); });
+          status(failed, 'err'); toast(failed, true); return;
+        }
+        R.markDirty(); if (!pendingSaves) status('All changes saved', 'ok');
+      })();
+    }
+    // set many cells from text: [{r, c, text}]
+    function setCells(list) {
+      var chs = [], skipped = 0, why = '';
+      list.forEach(function (x) {
+        var it = rows[x.r]; if (!it || x.c < 0 || x.c >= COLS.length) return;
+        var p = parseCell(x.c, x.text); if (!p.ok) { skipped++; why = p.why; var td = tdAt(x.r, x.c); if (td) { td.classList.add('bad'); setTimeout(function () { td.classList.remove('bad'); }, 1400); } return; }
+        var old = it[COLS[x.c].f]; if (JSON.stringify(old == null ? null : old) === JSON.stringify(p.v)) return;
+        chs.push({ id: it.id, f: COLS[x.c].f, old: old, val: p.v });
+      });
+      applyChanges(chs, true);
+      if (skipped) status(skipped === 1 ? why : skipped + ' cell(s) skipped: ' + why, 'err');
+      else if (!chs.length) status('Nothing changed', '');
+      return chs.length;
+    }
+    function undoRedo(from, to, label) {
+      var b = from.pop(); if (!b) return status('Nothing to ' + label, '');
+      var undoing = label === 'undo';
+      applyChanges(b.map(function (x) { return undoing ? { id: x.id, f: x.f, old: x.val, val: x.old } : { id: x.id, f: x.f, old: x.old, val: x.val }; }), false); to.push(b);
+    }
+
+    /* selection */
+    function rng() { if (!G.a) return null; return { r1: Math.min(G.a.r, G.f.r), r2: Math.max(G.a.r, G.f.r), c1: Math.min(G.a.c, G.f.c), c2: Math.max(G.a.c, G.f.c) }; }
+    function paintSel() {
+      tb.querySelectorAll('td.sel,td.act').forEach(function (td) { td.classList.remove('sel', 'act'); });
+      var q_ = rng(); if (!q_ || editing) { handle.hidden = true; return; }
+      for (var r = q_.r1; r <= q_.r2; r++) for (var c = q_.c1; c <= q_.c2; c++) { var td = tdAt(r, c); if (td) td.classList.add('sel'); }
+      var at = tdAt(G.a.r, G.a.c); if (at) at.classList.add('act');
+      var last = tdAt(q_.r2, q_.c2);
+      if (last && !isSmall()) { var wr = wrap.getBoundingClientRect(), tr_ = last.getBoundingClientRect(); handle.style.left = (tr_.right - wr.left + wrap.scrollLeft - 6) + 'px'; handle.style.top = (tr_.bottom - wr.top + wrap.scrollTop - 6) + 'px'; handle.hidden = false; } else handle.hidden = true;
+    }
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+    function select(a, f, keep) { G.a = a; G.f = f || a; paintSel(); var t = tdAt(G.f.r, G.f.c); if (t && !keep) t.scrollIntoView({ block: 'nearest', inline: 'nearest' }); if (t) setTimeout(paintSel, 0); }
+    function posOf(td) { var tr = td.parentNode; return { r: tr.rowIndex - tr.parentNode.parentNode.tHead.rows.length, c: td.cellIndex }; }
+    function tsv(q_) {
+      var out = [];
+      for (var r = q_.r1; r <= q_.r2; r++) { var line = []; for (var c = q_.c1; c <= q_.c2; c++) { var v = raw(rows[r], c); line.push(/[\t\n"]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v); } out.push(line.join('\t')); }
+      return out.join('\n');
+    }
+    function parseTsv(t) {
+      var rowsA = [], row = [], cur = '', inQ = false;
+      t = t.replace(/\r\n?/g, '\n'); if (t.charAt(t.length - 1) === '\n') t = t.slice(0, -1);
+      for (var k = 0; k < t.length; k++) {
+        var ch = t.charAt(k);
+        if (inQ) { if (ch === '"') { if (t.charAt(k + 1) === '"') { cur += '"'; k++; } else inQ = false; } else cur += ch; }
+        else if (ch === '"' && cur === '') inQ = true;
+        else if (ch === '\t') { row.push(cur); cur = ''; }
+        else if (ch === '\n') { row.push(cur); rowsA.push(row); row = []; cur = ''; }
+        else cur += ch;
+      }
+      row.push(cur); rowsA.push(row); return rowsA;
+    }
+    function markClip(q_) { tb.querySelectorAll('td.clipm').forEach(function (t) { t.classList.remove('clipm'); }); clipM = q_; if (!q_) return; for (var r = q_.r1; r <= q_.r2; r++) for (var c = q_.c1; c <= q_.c2; c++) { var t = tdAt(r, c); if (t) t.classList.add('clipm'); } }
+    function clearRange(q_) { var l = []; for (var r = q_.r1; r <= q_.r2; r++) for (var c = q_.c1; c <= q_.c2; c++) if (COLS[c].k !== 'ro') l.push({ r: r, c: c, text: COLS[c].k === 'chk' ? 'FALSE' : '' }); setCells(l); }
+    function fillBy(q_, dir) { // copy the first row (down) or first column (right) of the range across the rest
+      var l = [];
+      if (dir === 'down') { var r0 = q_.r1, rh = q_.r2 - q_.r1; if (rh === 0) { if (q_.r1 === 0) return; r0 = q_.r1 - 1; rh = 1; } for (var r = r0 + 1; r <= r0 + rh; r++) for (var c = q_.c1; c <= q_.c2; c++) l.push({ r: r, c: c, text: raw(rows[r0], c) }); }
+      else { var c0 = q_.c1, cw = q_.c2 - q_.c1; if (cw === 0) { if (q_.c1 === 0) return; c0 = q_.c1 - 1; cw = 1; } for (var r2 = q_.r1; r2 <= q_.r2; r2++) for (var c2 = c0 + 1; c2 <= c0 + cw; c2++) l.push({ r: r2, c: c2, text: raw(rows[r2], c0) }); }
+      setCells(l);
+    }
+
+    /* editing: in place on a PC, a small popup on phones and tablets */
+    function optionsFor(c) { var k = COLS[c].k; return k === 'sec' ? SECS : k === 'unit' ? UNITS.concat(['']) : null; }
+    function popupEdit(r, c) {
+      var col = COLS[c], it = rows[r]; if (col.k === 'ro') return toast('In stock is read-only. Use Adjust stock to change it.', true);
+      var cur = raw(it, c), field;
+      if (col.k === 'sup') field = '<select id="pe">' + R.supOptions(S.suppliers, it[col.f] || '', '—').replace(/<option value="__new__">[^<]*<\/option>/, '') + '</select>';
+      else if (col.k === 'sec') field = '<select id="pe">' + opts(SECS, cur) + '</select>';
+      else if (col.k === 'unit') field = '<select id="pe">' + opts(UNITS.indexOf(cur) >= 0 || !cur ? UNITS : UNITS.concat([cur]), cur, '—') + '</select>';
+      else if (col.k === 'chk') field = '<select id="pe"><option value="TRUE"' + (it[col.f] ? ' selected' : '') + '>On</option><option value="FALSE"' + (it[col.f] ? '' : ' selected') + '>Off</option></select>';
+      else field = '<input id="pe" ' + (col.k === 'num' ? 'inputmode="decimal" ' : '') + 'autocomplete="off" value="' + esc(cur) + '"' + (col.f === 'category' ? ' list="cl"' : col.k === 'arr' ? ' list="' + (col.f === 'stocked_at' ? 'll' : 'sl') + '"' : '') + '>';
+      R.ui.popup({ title: col.h, icon: 'edit', tone: 'accent', body: '<p class="muted" style="margin:0 0 8px"><b style="color:var(--text)">' + esc(it.name) + '</b></p><label for="pe">' + esc(col.h) + '</label>' + field + (col.k === 'arr' ? '<p class="muted" style="margin:6px 0 0">Separate several with commas.</p>' : ''),
+        actions: [{ label: 'Cancel', kind: 'alt', value: null }, { label: 'Save', icon: 'check', kind: 'primary-go', run: function (m) { var e2 = $('#pe', m), t = e2.tagName === 'SELECT' && (col.k === 'sup') ? (e2.value ? e2.options[e2.selectedIndex].text : '') : e2.value; var p = parseCell(c, t); if (!p.ok) throw new Error(p.why); setCells([{ r: r, c: c, text: t }]); return true; } }] });
+    }
+    function startEdit(initial) {
+      if (!G.a || editing) return;
+      var r = G.a.r, c = G.a.c, col = COLS[c], it = rows[r]; if (!it) return;
+      if (col.k === 'ro') return status('In stock is read-only. Use Adjust stock to change it.', 'err');
+      if (isSmall()) return popupEdit(r, c);
+      var td = tdAt(r, c), ed, opts_ = optionsFor(c);
+      if (col.k === 'chk') { setCells([{ r: r, c: c, text: it[col.f] ? 'FALSE' : 'TRUE' }]); return; }
+      if (col.k === 'sup') { ed = document.createElement('select'); ed.innerHTML = '<option value="">—</option>' + (S.suppliers || []).map(function (s) { return '<option value="' + esc(s.name) + '"' + (s.id === it[col.f] ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join(''); }
+      else if (opts_) { var cur = raw(it, c); ed = document.createElement('select'); ed.innerHTML = opts_.concat(opts_.indexOf(cur) >= 0 || !cur ? [] : [cur]).map(function (o) { return '<option value="' + esc(o) + '"' + (o === cur ? ' selected' : '') + '>' + (o === '' ? '—' : esc(o)) + '</option>'; }).join(''); }
+      else { ed = document.createElement('input'); ed.value = initial !== undefined ? initial : raw(it, c); ed.autocomplete = 'off'; if (col.k === 'num') ed.inputMode = 'decimal'; if (col.f === 'category') ed.setAttribute('list', 'cl'); else if (col.k === 'arr') ed.setAttribute('list', col.f === 'stocked_at' ? 'll' : 'sl'); }
+      ed.className = 'ed'; td.classList.add('editing'); td.firstChild.style.display = 'none'; td.appendChild(ed);
+      editing = { r: r, c: c, el: ed, td: td }; handle.hidden = true;
+      ed.focus(); if (ed.tagName === 'INPUT') { var n = ed.value.length; try { ed.setSelectionRange(n, n); } catch (x) { /* ignore */ } }
+      ed.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); endEdit(true, e.shiftKey ? 'up' : 'down'); }
+        else if (e.key === 'Tab') { e.preventDefault(); endEdit(true, e.shiftKey ? 'left' : 'right'); }
+        else if (e.key === 'Escape') { e.preventDefault(); endEdit(false); }
+      });
+      ed.addEventListener('blur', function () { if (editing && editing.el === ed) endEdit(true); });
+      if (ed.tagName === 'SELECT') ed.addEventListener('change', function () { endEdit(true); });
+    }
+    function endEdit(commit, move) {
+      if (!editing) return; var e = editing; editing = null;
+      var t = e.el.tagName === 'SELECT' && COLS[e.c].k !== 'unit' && COLS[e.c].k !== 'sec' ? e.el.value : e.el.value;
+      e.td.classList.remove('editing'); e.td.firstChild.style.display = ''; if (e.el.parentNode) e.el.parentNode.removeChild(e.el);
+      if (commit) setCells([{ r: e.r, c: e.c, text: t }]);
+      var a = { r: e.r, c: e.c };
+      if (move === 'down') a.r = clamp(a.r + 1, 0, rows.length - 1); else if (move === 'up') a.r = clamp(a.r - 1, 0, rows.length - 1); else if (move === 'right') a.c = clamp(a.c + 1, 0, COLS.length - 1); else if (move === 'left') a.c = clamp(a.c - 1, 0, COLS.length - 1);
+      select(a); wrap.focus({ preventScroll: true });
+    }
+
+    /* mouse: click, drag to select, shift-click, header = whole column, double-click to edit, drag the square to fill */
+    tb.addEventListener('mousedown', function (e) {
+      if (e.button !== 0 || isSmall()) return; var td = e.target.closest('td'); if (!td || td.closest('tbody') !== tb || !td.hasAttribute('data-c')) return;
+      if (editing) { if (editing.td === td) return; endEdit(true); }
+      e.preventDefault(); wrap.focus({ preventScroll: true }); var p = posOf(td);
+      if (e.shiftKey && G.a) select(G.a, p, true); else select(p, p, true);
+      dragSel = true;
+    });
+    tb.addEventListener('mouseover', function (e) { if (!dragSel) return; var td = e.target.closest('td'); if (!td || !td.hasAttribute('data-c')) return; select(G.a, posOf(td), true); });
+    tb.addEventListener('dblclick', function (e) { if (isSmall()) return; var td = e.target.closest('td'); if (!td || !td.hasAttribute('data-c')) return; select(posOf(td)); startEdit(); });
+    tb.addEventListener('click', function (e) { if (!isSmall()) return; var td = e.target.closest('td'); if (!td || !td.hasAttribute('data-c')) return; if (td.cellIndex === 0 && false) return; popupEdit(td.parentNode.rowIndex - tb.parentNode.tHead.rows.length, td.cellIndex); });
+    $('thead', wrap).addEventListener('mousedown', function (e) {
+      var th = e.target.closest('th'); if (!th || isSmall() || !rows.length) return; e.preventDefault(); wrap.focus({ preventScroll: true });
+      var c = th.cellIndex; if (e.shiftKey && G.a) select(G.a, { r: rows.length - 1, c: c }, true); else select({ r: 0, c: c }, { r: rows.length - 1, c: c }, true);
+    });
+    handle.addEventListener('mousedown', function (e) { e.preventDefault(); e.stopPropagation(); var q_ = rng(); if (!q_) return; fillDrag = { q: q_, to: null }; });
+    document.addEventListener('mousemove', function (e) {
+      if (!wrap.isConnected) return;
+      if (dragSel || fillDrag) { var wr = wrap.getBoundingClientRect(); if (e.clientY > wr.bottom - 24) wrap.scrollTop += 24; else if (e.clientY < wr.top + 50) wrap.scrollTop -= 24; if (e.clientX > wr.right - 24) wrap.scrollLeft += 24; else if (e.clientX < wr.left + 260) wrap.scrollLeft -= 24; }
+      if (!fillDrag) return;
+      var el = document.elementFromPoint(e.clientX, e.clientY), td = el && el.closest ? el.closest('td[data-c]') : null; if (!td || td.closest('tbody') !== tb) return;
+      var p = posOf(td), q_ = fillDrag.q, dr = p.r > q_.r2 ? p.r - q_.r2 : p.r < q_.r1 ? p.r - q_.r1 : 0, dc = p.c > q_.c2 ? p.c - q_.c2 : p.c < q_.c1 ? p.c - q_.c1 : 0, t;
+      if (!dr && !dc) t = null; else if (Math.abs(dr) >= Math.abs(dc)) t = dr > 0 ? { r1: q_.r2 + 1, r2: p.r, c1: q_.c1, c2: q_.c2 } : { r1: p.r, r2: q_.r1 - 1, c1: q_.c1, c2: q_.c2 }; else t = dc > 0 ? { r1: q_.r1, r2: q_.r2, c1: q_.c2 + 1, c2: p.c } : { r1: q_.r1, r2: q_.r2, c1: p.c, c2: q_.c1 - 1 };
+      tb.querySelectorAll('td.fillprev').forEach(function (x) { x.classList.remove('fillprev'); }); fillDrag.to = t;
+      if (t) for (var r = t.r1; r <= t.r2; r++) for (var c = t.c1; c <= t.c2; c++) { var x = tdAt(r, c); if (x) x.classList.add('fillprev'); }
+    });
+    document.addEventListener('mouseup', function () {
+      if (dragSel) { dragSel = false; paintSel(); }
+      if (!fillDrag) return; var f = fillDrag; fillDrag = null; tb.querySelectorAll('td.fillprev').forEach(function (x) { x.classList.remove('fillprev'); });
+      if (!f.to) return; var q_ = f.q, t = f.to, l = [], h = q_.r2 - q_.r1 + 1, w = q_.c2 - q_.c1 + 1;
+      for (var r = t.r1; r <= t.r2; r++) for (var c = t.c1; c <= t.c2; c++) { var sr = q_.r1 + (((r - q_.r1) % h) + h) % h, sc = q_.c1 + (((c - q_.c1) % w) + w) % w; l.push({ r: r, c: c, text: raw(rows[sr], sc) }); }
+      setCells(l);
+      select({ r: Math.min(q_.r1, t.r1), c: Math.min(q_.c1, t.c1) }, { r: Math.max(q_.r2, t.r2), c: Math.max(q_.c2, t.c2) }, true);
+    });
+    wrap.addEventListener('scroll', function () { if (G.a && !editing) paintSel(); });
+
+    /* keyboard */
+    wrap.addEventListener('keydown', function (e) {
+      if (editing || !G.a || e.target !== wrap) return;
+      var k = e.key, ctrl = e.ctrlKey || e.metaKey, sh = e.shiftKey, last = rows.length - 1, lc = COLS.length - 1, f = G.f, mv = null;
+      if (k === 'ArrowDown') mv = { r: ctrl ? last : f.r + 1, c: f.c }; else if (k === 'ArrowUp') mv = { r: ctrl ? 0 : f.r - 1, c: f.c };
+      else if (k === 'ArrowRight') mv = { r: f.r, c: ctrl ? lc : f.c + 1 }; else if (k === 'ArrowLeft') mv = { r: f.r, c: ctrl ? 0 : f.c - 1 };
+      else if (k === 'PageDown') mv = { r: f.r + 15, c: f.c }; else if (k === 'PageUp') mv = { r: f.r - 15, c: f.c };
+      else if (k === 'Home') mv = { r: ctrl ? 0 : f.r, c: 0 }; else if (k === 'End') mv = { r: ctrl ? last : f.r, c: lc };
+      else if (k === 'Tab') mv = { r: f.r, c: f.c + (sh ? -1 : 1) };
+      if (mv) { e.preventDefault(); mv = { r: clamp(mv.r, 0, last), c: clamp(mv.c, 0, lc) }; if (sh && k !== 'Tab') select(G.a, mv); else select(mv); return; }
+      if (ctrl && (k === 'a' || k === 'A')) { e.preventDefault(); select({ r: 0, c: 0 }, { r: last, c: lc }); return; }
+      if (ctrl && (k === 'z' || k === 'Z')) { e.preventDefault(); if (sh) undoRedo(redoS, undoS, 'redo'); else undoRedo(undoS, redoS, 'undo'); return; }
+      if (ctrl && (k === 'y' || k === 'Y')) { e.preventDefault(); undoRedo(redoS, undoS, 'redo'); return; }
+      if (ctrl && (k === 'd' || k === 'D')) { e.preventDefault(); fillBy(rng(), 'down'); return; }
+      if (ctrl && (k === 'r' || k === 'R')) { e.preventDefault(); fillBy(rng(), 'right'); return; }
+      if (k === 'Enter' || k === 'F2') { e.preventDefault(); startEdit(); return; }
+      if (k === 'Delete' || k === 'Backspace') { e.preventDefault(); clearRange(rng()); return; }
+      if (k === 'Escape') { markClip(null); return; }
+      if (k === ' ' && COLS[G.a.c].k === 'chk') { e.preventDefault(); startEdit(); return; }
+      if (k.length === 1 && !ctrl && !e.altKey) { e.preventDefault(); startEdit(k); }
+    });
+    wrap.addEventListener('copy', function (e) { if (editing || !G.a) return; var q_ = rng(); e.clipboardData.setData('text/plain', tsv(q_)); e.preventDefault(); markClip(q_); status('Copied ' + (q_.r2 - q_.r1 + 1) * (q_.c2 - q_.c1 + 1) + ' cell(s)', ''); });
+    wrap.addEventListener('cut', function (e) { if (editing || !G.a) return; var q_ = rng(); e.clipboardData.setData('text/plain', tsv(q_)); e.preventDefault(); clearRange(q_); });
+    wrap.addEventListener('paste', function (e) {
+      if (editing || !G.a) return; e.preventDefault();
+      var m = parseTsv((e.clipboardData || window.clipboardData).getData('text')), q_ = rng(), l = [];
+      if (m.length === 1 && m[0].length === 1 && (q_.r2 > q_.r1 || q_.c2 > q_.c1)) { for (var r = q_.r1; r <= q_.r2; r++) for (var c = q_.c1; c <= q_.c2; c++) l.push({ r: r, c: c, text: m[0][0] }); }
+      else m.forEach(function (line, i) { line.forEach(function (v, j) { if (q_.r1 + i < rows.length && q_.c1 + j < COLS.length) l.push({ r: q_.r1 + i, c: q_.c1 + j, text: v }); }); });
+      var n = setCells(l); markClip(null);
+      select({ r: q_.r1, c: q_.c1 }, { r: Math.min(rows.length - 1, q_.r1 + Math.max(m.length, 1) - 1 + (m.length === 1 ? q_.r2 - q_.r1 : 0)), c: Math.min(COLS.length - 1, q_.c1 + Math.max(m[0].length, 1) - 1 + (m.length === 1 && m[0].length === 1 ? q_.c2 - q_.c1 : 0)) });
+    });
+
     function draw() {
       var list = S.items.filter(function (i) { if (st.need === 'inactive') return !i.active && hit(i, st); return (st.need ? NEED[st.need](i) && i.active : i.active) && hit(i, st); }).sort(sorter(st.sort || 'name', sm));
+      if (editing) endEdit(false); rows = list; G.a = G.f = null; clipM = null; handle.hidden = true;
       $('#icount', box).textContent = list.length + ' item(s)';
-      $('#it', box).innerHTML = list.map(function (i) { return '<tr data-id="' + i.id + '">' + COLS.map(function (c) { return cell(i, c); }).join('') + '</tr>'; }).join('') || '<tr><td colspan="' + COLS.length + '" class="muted" style="padding:14px">No items match.</td></tr>';
+      tb.innerHTML = list.map(function (i) { return '<tr data-id="' + i.id + '">' + COLS.map(function (c, ci) { return '<td data-c="' + ci + '" data-label="' + esc(c.h) + '" class="' + (c.num ? 'num ' : '') + (c.k === 'ro' ? 'ro ' : '') + (c.k === 'chk' ? 'ck' : '') + '"><div class="cv">' + esc(shown(i, ci)) + '</div></td>'; }).join('') + '</tr>'; }).join('') || '<tr><td colspan="' + COLS.length + '" class="muted" style="padding:14px">No items match.</td></tr>';
     }
     wire(box, st, draw); wireSec(box); draw();
     var missing = S.items.filter(function (i) { return i.active && (i.reorder_point == null || i.critical_level == null || i.par_target == null); }).length;
@@ -844,62 +1061,6 @@
       });
     };
     box.querySelectorAll('[data-need]').forEach(function (b) { b.onclick = function () { st.need = b.dataset.need; $('[data-k=need]', box).value = st.need; draw(); $('#it', box).scrollIntoView({ behavior: 'smooth' }); }; });
-    var tb = $('#it', box);
-    function save(id, patch, el) {
-      el.classList.remove('bad'); pendingSaves++; status('Saving…', '');
-      sb.from('items').update(patch).eq('id', id).then(function (res) {
-        pendingSaves--;
-        if (res.error) { el.classList.add('bad'); status(res.error.message, 'err'); toast(res.error.message, true); return; }
-        var it = S.map.get(id); if (it) Object.assign(it, patch);
-        R.markDirty(); if (!pendingSaves) status('All changes saved', 'ok');
-      });
-    }
-    tb.addEventListener('change', function (e) {
-      var el = e.target, f = el.dataset.f; if (!f) return;
-      var id = el.closest('tr').dataset.id, v;
-      if (f === 'active') v = el.checked;
-      else if (el.hasAttribute('data-arr')) v = el.value.split(',').map(function (x) { return x.trim().toUpperCase(); }).filter(Boolean);
-      else if (el.hasAttribute('data-num')) {
-        var t = el.value.trim().replace(/,/g, '');
-        if (t === '') v = null; else { v = Number(t); if (!isFinite(v) || v < 0) { el.classList.add('bad'); status('"' + el.value + '" is not a number', 'err'); return; } }
-      } else { v = el.value === '' ? null : el.value; if (f === 'name') { v = (v || '').trim().toUpperCase(); if (!v) { el.classList.add('bad'); status('An item needs a name', 'err'); return; } el.value = v; } }
-      var patch = {}; patch[f] = v; save(id, patch, el);
-    });
-    function cellAt(tr, col) { var td = tr && tr.children[col]; return td && td.querySelector('input:not([type=checkbox]),select,input[type=checkbox]'); }
-    function colOf(el) { return [].indexOf.call(el.closest('tr').children, el.closest('td')); }
-    function go(el, tr) { var n = cellAt(tr, colOf(el)); if (n) { n.focus(); if (n.select && n.tagName === 'INPUT' && n.type !== 'checkbox') n.select(); } }
-    tb.addEventListener('keydown', function (e) {
-      var el = e.target; if (!el.dataset || !el.dataset.f) return; var tr = el.closest('tr');
-      if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); go(el, e.shiftKey ? tr.previousElementSibling : tr.nextElementSibling); }
-      else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && el.tagName === 'INPUT' && el.type !== 'checkbox') { e.preventDefault(); go(el, e.key === 'ArrowDown' ? tr.nextElementSibling : tr.previousElementSibling); }
-      else if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
-        e.preventDefault(); var above = cellAt(tr.previousElementSibling, colOf(el)); if (!above || el.readOnly) return;
-        if (el.type === 'checkbox') el.checked = above.checked; else el.value = above.value;
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    });
-    function setCell(el, val) {
-      val = String(val == null ? '' : val).trim();
-      if (el.tagName === 'SELECT') {
-        var opt = [].filter.call(el.options, function (o) { return o.value !== '__new__' && (o.text.trim().toUpperCase() === val.toUpperCase() || o.value === val); })[0];
-        if (!opt && val !== '') { status('"' + val + '" is not in the list for ' + el.getAttribute('aria-label'), 'err'); return; }
-        el.value = opt ? opt.value : '';
-      } else if (el.type === 'checkbox') el.checked = /^(true|yes|y|1|x|on)$/i.test(val);
-      else el.value = val;
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    tb.addEventListener('paste', function (e) {
-      var el = e.target.closest ? e.target.closest('[data-f]') : null; if (!el) return;
-      var txt = (e.clipboardData || window.clipboardData).getData('text').replace(/\r/g, '').replace(/\n$/, '');
-      if (txt.indexOf('\t') < 0 && txt.indexOf('\n') < 0) return;
-      e.preventDefault();
-      var col = colOf(el), tr = el.closest('tr');
-      txt.split('\n').forEach(function (line) {
-        if (!tr) return;
-        line.split('\t').forEach(function (val, k) { var c = cellAt(tr, col + k); if (c && !c.readOnly) setCell(c, val); });
-        tr = tr.nextElementSibling;
-      });
-    });
     $('#aadd', box).onclick = function (e) {
       act(e.currentTarget, async function () {
         function v(id) { return $('#' + id, box).value.trim(); }
