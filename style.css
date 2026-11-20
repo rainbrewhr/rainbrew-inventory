@@ -339,7 +339,9 @@ body.has-fab main{padding-bottom:120px}
 @media (max-width:767px){
   .filters{grid-template-columns:1fr 1fr}.filters .wide,.filters>input{grid-column:1/-1}
   .card.filterbar,.filters{gap:8px}
-  table.stack td[data-label=""]:last-child{display:none}
+  table.stack td[data-label=""]:last-child:not(:has(button,a,select,input)){display:none}
+  table.stack td[data-label=""]:last-child:has(button,a,select,input){justify-content:flex-end;border-top:1px solid var(--line);margin-top:4px;padding-top:10px}
+  table.stack td[data-label=""]:last-child .btn{flex:1}
   table.stack td{padding:5px 0}
   .kpi.t-crit b,.kpi.t-warn b{font-size:31px}
 }
@@ -498,3 +500,6 @@ html[data-theme=dark]{--sec-com:#7CC9B3;--sec-fro:#9DB8DE;--sec-main:#D3BCA8}
 .secbar button:hover{color:var(--text)}
 .secbar button[aria-pressed=true]{background:var(--primary);color:var(--primary-fg)}
 @media (max-width:767px){.secbar{display:grid;grid-template-columns:1fr 1fr;width:100%}.secbar button{justify-content:center;min-height:44px;padding:9px 8px}}
+
+body.fab-off .fabs{display:none}
+body.fab-off.has-fab main{padding-bottom:56px}

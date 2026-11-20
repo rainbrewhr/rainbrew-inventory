@@ -648,6 +648,7 @@
     $('#ptitle').textContent = pg ? pg.label : TABS[tab].label;
     $('#psub').textContent = tabs.length > 1 ? '' : dateFmt.format(new Date());
     document.title = TABS[tab].label + ' · ' + BRAND;
+    document.body.classList.toggle('fab-off', ['items', 'places', 'users'].indexOf(tab) >= 0); // config screens: the floating buttons would sit on top of their controls
     if ($('#fabs')) { $('#fab-req').classList.toggle('cur', tab === 'req'); $('#fab-buy').classList.toggle('cur', tab === 'buyreq'); $('#fab-req').setAttribute('aria-current', tab === 'req' ? 'page' : 'false'); $('#fab-buy').setAttribute('aria-current', tab === 'buyreq' ? 'page' : 'false'); }
   }
   async function show(tab, params) {
