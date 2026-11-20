@@ -391,7 +391,7 @@ table.items td{padding-left:6px;padding-right:6px}
 @media (max-width:767px){table.items td .numstep .ns-b{width:44px}table.stack.items td .numstep{width:auto}table.stack.items td .numstep input{width:64px;flex:none}}
 
 /* editable items table: cards below 1024px instead of sideways scrolling */
-@media (max-width:1023px){
+@media (max-width:767px), (max-width:1023px) and (pointer:coarse){
   .card.tbl:has(table.items){overflow:visible}
   table.stack.items,table.stack.items.fx{table-layout:auto;min-width:0;width:100%}
   table.stack.items colgroup,table.stack.items thead{display:none}
@@ -424,7 +424,7 @@ input.lb-q{padding-left:42px}
 
 /* ---------- items sheet (PC): spreadsheet feel ---------- */
 .isave{font-weight:600}.isave.ok{color:var(--ok)}.isave.err{color:var(--crit)}
-@media (min-width:1024px){
+@media (min-width:1024px), (min-width:768px) and (pointer:fine){
   .sheet-wrap{max-height:calc(100vh - 230px);overflow:auto;border:1px solid var(--line2);border-radius:var(--r-sm);background:var(--panel)}
   table.sheet{border-collapse:separate;border-spacing:0;table-layout:fixed;width:max-content;min-width:100%}
   table.sheet th{position:sticky;top:0;z-index:3;background:var(--panel2);border-bottom:1px solid var(--line2);border-right:1px solid var(--line);padding:9px 10px;font-size:13.5px;white-space:nowrap;text-align:left}
@@ -441,14 +441,14 @@ input.lb-q{padding-left:42px}
   table.sheet .bad{outline:2px solid var(--crit);outline-offset:-2px;background:var(--critbg)}
   table.sheet tbody tr:hover td:not(.ro){background:var(--panel2)}
 }
-@media (max-width:1023px){table.sheet{width:100%;min-width:0}.sheet-wrap{overflow:visible}table.sheet td.ck{text-align:right}table.sheet td.ro{color:var(--mute)}}
+@media (max-width:767px), (max-width:1023px) and (pointer:coarse){table.sheet{width:100%;min-width:0}.sheet-wrap{overflow:visible}table.sheet td.ck{text-align:right}table.sheet td.ro{color:var(--mute)}}
 
 .tools2{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;margin:0 0 16px}
 .tools2>.card{margin:0}
 @media (max-width:900px){.tools2{grid-template-columns:1fr}}
 .card.note{display:flex;gap:10px;align-items:center;color:var(--text);background:var(--warnbg);border-color:transparent}
 main:has(.sheet-wrap){max-width:none}
-@media (min-width:1024px){.sheet-wrap{max-height:calc(100vh - 210px)}}
+@media (min-width:1024px), (min-width:768px) and (pointer:fine){.sheet-wrap{max-height:calc(100vh - 210px)}}
 
 /* ---------- sidebar: two-line items, collapsible on PC ---------- */
 nav.tabs button .nl{display:flex;flex-direction:column;min-width:0;line-height:1.2;gap:2px}
@@ -519,10 +519,34 @@ table.sheet td.editing{padding:0;background:var(--panel)!important;user-select:t
 table.sheet .ed{width:100%;height:37px;border:0;border-radius:0;outline:2px solid var(--accent);outline-offset:-2px;padding:0 10px;font:inherit;background:var(--panel);box-shadow:none;min-height:0;position:relative}
 table.sheet tbody tr:hover td:not(.ro):not(.sel):not(.act){background:var(--panel2)}
 .fillh{position:absolute;width:11px;height:11px;background:var(--accent);border:2px solid var(--panel);border-radius:3px;cursor:crosshair;z-index:6;touch-action:none}
-@media (max-width:1023px){
+@media (max-width:767px), (max-width:1023px) and (pointer:coarse){
   table.sheet td{cursor:pointer}
   table.sheet .cv{height:auto;line-height:1.4;padding:0;white-space:normal;text-align:right;min-height:20px}
   table.sheet .cv:empty::before{content:"—";color:var(--mute)}
   .fillh{display:none}
 }
 .sheet-wrap:focus{outline:none}
+
+/* ---------- column sort / filter menus ---------- */
+table.sheet th{white-space:nowrap}
+table.sheet th .hn{vertical-align:middle}
+table.sheet th .hs{color:var(--accent-ink);font-weight:700}
+table.sheet th.filtered .hn{color:var(--accent-ink)}
+table.sheet th .hm{float:right;width:22px;height:22px;margin:-2px -4px -2px 6px;border:0;border-radius:var(--r-xs);background:none;cursor:pointer;color:var(--mute);position:relative}
+table.sheet th .hm::before{content:"";position:absolute;left:6px;top:9px;border:5px solid transparent;border-top-color:currentColor;border-bottom:0}
+table.sheet th .hm:hover{background:var(--line)}
+table.sheet th.filtered .hm,table.sheet th.sorted .hm{color:var(--accent-ink);background:var(--accent-soft)}
+.hmenu{position:fixed;z-index:80;width:260px;max-height:min(520px,calc(100vh - 16px));display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line2);border-radius:var(--radius);box-shadow:var(--float);padding:6px;overflow:hidden}
+.hmenu>button,.hmenu .hb button,.hmenu .ha button{border:0;background:none;text-align:left;padding:9px 10px;border-radius:var(--r-sm);font:600 14.5px var(--sans);cursor:pointer;color:var(--text);min-height:38px}
+.hmenu>button:hover,.hmenu .hb button:hover,.hmenu .ha button:hover{background:var(--panel2)}
+.hmenu>button.on{color:var(--accent-ink);background:var(--accent-soft)}
+.hmenu hr{border:0;border-top:1px solid var(--line);margin:6px 0;width:100%}
+.hmenu .hq{padding:0 4px 6px}.hmenu .hq input{min-height:36px}
+.hmenu .hb{display:flex;gap:4px;padding:0 4px}.hmenu .hb button{color:var(--accent-ink);padding:5px 8px;min-height:30px;font-size:13.5px}
+.hmenu .hl{overflow:auto;flex:1;min-height:60px;margin:4px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.hmenu .hl label{display:flex;gap:10px;align-items:center;padding:7px 10px;margin:0;font:500 14.5px var(--sans);color:var(--text);cursor:pointer}
+.hmenu .hl label:hover{background:var(--panel2)}
+.hmenu .hl label span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hmenu .hl label i{font-style:normal;color:var(--mute);font-size:13px;font-variant-numeric:tabular-nums}
+.hmenu .ha{display:flex;justify-content:flex-end;gap:6px;padding-top:4px}
+.hmenu .ha .pri{background:var(--accent);color:#fff;text-align:center}.hmenu .ha .pri:hover{background:var(--accent)}

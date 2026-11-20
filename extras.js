@@ -782,16 +782,17 @@
         { t: 'c', k: 'need', ph: 'All items', o: [needLabel('nosup', 'No supplier'), needLabel('noreorder', 'No reorder point'), needLabel('nocrit', 'No critical level'), needLabel('nopar', 'No PAR'), needLabel('noloc', 'No location'), needLabel('neg', 'Negative stock'), { value: 'inactive', label: 'Inactive' }] }, { t: 'c', k: 'sort', ph: 'Sort: name (A–Z)', o: SORT_OPTS }], st) +
       secBar() + '<div class="row" style="margin:0 0 10px"><button class="btn alt sm" id="isug">Suggest levels from usage</button><span class="muted" id="isugn"></span></div>' +
       '<p class="muted" id="ihint" style="margin:0 0 8px"><span id="icount"></span> · Click a cell. <b>Arrow keys</b> move, <b>Enter</b> or typing edits, <b>Shift</b> + click or arrows selects a range, drag the small square to fill, <b>Ctrl+C</b> / <b>Ctrl+V</b> copy and paste (one value pastes into every selected cell), <b>Delete</b> clears, <b>Ctrl+Z</b> undoes. Changes save by themselves. <span id="isave" class="isave"></span></p>' +
-      '<div class="sheet-wrap"><table class="sheet items"><colgroup>' + COLS.map(function (c) { return '<col style="width:' + c.w + 'px">'; }).join('') + '</colgroup><thead><tr>' + COLS.map(function (c) { return '<th' + (c.num ? ' class="num"' : '') + '>' + esc(c.h) + '</th>'; }).join('') + '</tr></thead><tbody id="it"></tbody></table></div>';
+      '<div class="chips" id="ifilt"></div><div class="sheet-wrap"><table class="sheet items"><colgroup>' + COLS.map(function (c) { return '<col style="width:' + c.w + 'px">'; }).join('') + '</colgroup><thead><tr>' + COLS.map(function (c, ci) { return '<th' + (c.num ? ' class="num"' : '') + '><span class="hn">' + esc(c.h) + '</span><span class="hs"></span><button type="button" class="hm" data-hm="' + ci + '" aria-label="Sort and filter ' + esc(c.h) + '" title="Sort and filter"></button></th>'; }).join('') + '</tr></thead><tbody id="it"></tbody></table></div>';
     /* ---------- spreadsheet grid (Google Sheets style): select, arrows, range, drag-fill, copy / paste, undo ---------- */
     var rows = [], G = { a: null, f: null }, undoS = [], redoS = [], pendingSaves = 0, clipM = null, editing = null, dragSel = false, fillDrag = null;
     var wrap = $('.sheet-wrap', box), tb = $('#it', box), handle = document.createElement('div');
     handle.className = 'fillh'; handle.hidden = true; wrap.appendChild(handle); wrap.tabIndex = 0;
     var SECS = ['Main store', 'Commissary', 'Frozen & packed'];
-    function isSmall() { return window.matchMedia('(max-width:1023px)').matches; }
+    function isSmall() { return window.matchMedia('(max-width:767px), (max-width:1023px) and (pointer:coarse)').matches; }
     function status(t, cls) { var el = $('#isave', box); if (el) { el.textContent = t; el.className = 'isave ' + (cls || ''); } }
     function supName(id) { var s = (S.suppliers || []).filter(function (x) { return x.id === id; })[0]; return s ? s.name : ''; }
     function raw(i, c) {
+      if (!i) return '';
       var col = COLS[c], v = i[col.f];
       if (col.k === 'chk') return v ? 'TRUE' : 'FALSE';
       if (col.k === 'sup') return supName(v);
@@ -799,6 +800,7 @@
       return v == null ? '' : String(v);
     }
     function shown(i, c) {
+      if (!i) return '';
       var col = COLS[c], v = i[col.f];
       if (col.k === 'chk') return v ? 'On' : 'Off';
       if (col.k === 'num' || col.k === 'ro') return v == null ? '' : fmt(v);
@@ -816,14 +818,19 @@
       return { ok: true, v: t === '' ? null : t };
     }
     function tdAt(r, c) { return tb.rows[r] && tb.rows[r].cells[c]; }
-    function paintCell(r, c) { var td = tdAt(r, c); if (td && td.firstChild && !td.classList.contains('editing')) td.firstChild.textContent = shown(rows[r], c); }
-    function rowOfId(id) { for (var k = 0; k < rows.length; k++) if (rows[k].id === id) return k; return -1; }
+    function paintCell(r, c) { var td = tdAt(r, c); if (td && td.firstChild && !td.classList.contains('editing')) td.firstChild.textContent = shown(itemAt(r), c); }
+    function repaintAll() { for (var r = 0; r < rows.length; r++) for (var c = 0; c < COLS.length; c++) paintCell(r, c); }
+    var refreshT = null;
+    function refreshSoon() { clearTimeout(refreshT); refreshT = setTimeout(function () { if (!wrap.isConnected) return; if (pendingSaves || editing) return refreshSoon(); R.loadCatalog(true).catch(function () { /* the next refresh will catch up */ }); }, 700); }
+    function itemAt(r) { return S.map.get(rows[r]); }
+    function rowOfId(id) { for (var k = 0; k < rows.length; k++) if (rows[k] === id) return k; return -1; }
     function cOfField(f) { for (var k = 0; k < COLS.length; k++) if (COLS[k].f === f) return k; return -1; }
     // apply [{id, f, old, val}] locally, then save in the background
     function applyChanges(chs, track) {
       if (!chs.length) return;
       var byId = {};
       chs.forEach(function (x) { var it = S.map.get(x.id); if (!it) return; it[x.f] = x.val; var r = rowOfId(x.id), c = cOfField(x.f); if (r >= 0 && c >= 0) paintCell(r, c); (byId[x.id] = byId[x.id] || {})[x.f] = x.val; });
+      Object.keys(byId).forEach(function (id) { var it2 = S.map.get(id); if (it2) R.recalc(it2); }); R.refreshAlerts();
       if (track) { undoS.push(chs); if (undoS.length > 100) undoS.shift(); redoS.length = 0; }
       var ids = Object.keys(byId); pendingSaves++; status('Saving ' + chs.length + ' cell' + (chs.length > 1 ? 's' : '') + '…', '');
       (async function () {
@@ -834,17 +841,17 @@
         }
         pendingSaves--;
         if (failed) {
-          chs.forEach(function (x) { var it = S.map.get(x.id); if (it) it[x.f] = x.old; var r = rowOfId(x.id), c = cOfField(x.f); if (r >= 0 && c >= 0) paintCell(r, c); });
+          chs.forEach(function (x) { var it = S.map.get(x.id); if (it) { it[x.f] = x.old; R.recalc(it); } var r = rowOfId(x.id), c = cOfField(x.f); if (r >= 0 && c >= 0) paintCell(r, c); });
           status(failed, 'err'); toast(failed, true); return;
         }
-        R.markDirty(); if (!pendingSaves) status('All changes saved', 'ok');
+        R.markDirty(); if (!pendingSaves) { status('All changes saved', 'ok'); refreshSoon(); }
       })();
     }
     // set many cells from text: [{r, c, text}]
     function setCells(list) {
       var chs = [], skipped = 0, why = '';
       list.forEach(function (x) {
-        var it = rows[x.r]; if (!it || x.c < 0 || x.c >= COLS.length) return;
+        var it = itemAt(x.r); if (!it || x.c < 0 || x.c >= COLS.length) return;
         var p = parseCell(x.c, x.text); if (!p.ok) { skipped++; why = p.why; var td = tdAt(x.r, x.c); if (td) { td.classList.add('bad'); setTimeout(function () { td.classList.remove('bad'); }, 1400); } return; }
         var old = it[COLS[x.c].f]; if (JSON.stringify(old == null ? null : old) === JSON.stringify(p.v)) return;
         chs.push({ id: it.id, f: COLS[x.c].f, old: old, val: p.v });
@@ -875,7 +882,7 @@
     function posOf(td) { var tr = td.parentNode; return { r: tr.rowIndex - tr.parentNode.parentNode.tHead.rows.length, c: td.cellIndex }; }
     function tsv(q_) {
       var out = [];
-      for (var r = q_.r1; r <= q_.r2; r++) { var line = []; for (var c = q_.c1; c <= q_.c2; c++) { var v = raw(rows[r], c); line.push(/[\t\n"]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v); } out.push(line.join('\t')); }
+      for (var r = q_.r1; r <= q_.r2; r++) { var line = []; for (var c = q_.c1; c <= q_.c2; c++) { var v = raw(itemAt(r), c); line.push(/[\t\n"]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v); } out.push(line.join('\t')); }
       return out.join('\n');
     }
     function parseTsv(t) {
@@ -895,15 +902,15 @@
     function clearRange(q_) { var l = []; for (var r = q_.r1; r <= q_.r2; r++) for (var c = q_.c1; c <= q_.c2; c++) if (COLS[c].k !== 'ro') l.push({ r: r, c: c, text: COLS[c].k === 'chk' ? 'FALSE' : '' }); setCells(l); }
     function fillBy(q_, dir) { // copy the first row (down) or first column (right) of the range across the rest
       var l = [];
-      if (dir === 'down') { var r0 = q_.r1, rh = q_.r2 - q_.r1; if (rh === 0) { if (q_.r1 === 0) return; r0 = q_.r1 - 1; rh = 1; } for (var r = r0 + 1; r <= r0 + rh; r++) for (var c = q_.c1; c <= q_.c2; c++) l.push({ r: r, c: c, text: raw(rows[r0], c) }); }
-      else { var c0 = q_.c1, cw = q_.c2 - q_.c1; if (cw === 0) { if (q_.c1 === 0) return; c0 = q_.c1 - 1; cw = 1; } for (var r2 = q_.r1; r2 <= q_.r2; r2++) for (var c2 = c0 + 1; c2 <= c0 + cw; c2++) l.push({ r: r2, c: c2, text: raw(rows[r2], c0) }); }
+      if (dir === 'down') { var r0 = q_.r1, rh = q_.r2 - q_.r1; if (rh === 0) { if (q_.r1 === 0) return; r0 = q_.r1 - 1; rh = 1; } for (var r = r0 + 1; r <= r0 + rh; r++) for (var c = q_.c1; c <= q_.c2; c++) l.push({ r: r, c: c, text: raw(itemAt(r0), c) }); }
+      else { var c0 = q_.c1, cw = q_.c2 - q_.c1; if (cw === 0) { if (q_.c1 === 0) return; c0 = q_.c1 - 1; cw = 1; } for (var r2 = q_.r1; r2 <= q_.r2; r2++) for (var c2 = c0 + 1; c2 <= c0 + cw; c2++) l.push({ r: r2, c: c2, text: raw(itemAt(r2), c0) }); }
       setCells(l);
     }
 
     /* editing: in place on a PC, a small popup on phones and tablets */
     function optionsFor(c) { var k = COLS[c].k; return k === 'sec' ? SECS : k === 'unit' ? UNITS.concat(['']) : null; }
     function popupEdit(r, c) {
-      var col = COLS[c], it = rows[r]; if (col.k === 'ro') return toast('In stock is read-only. Use Adjust stock to change it.', true);
+      var col = COLS[c], it = itemAt(r); if (col.k === 'ro') return toast('In stock is read-only. Use Adjust stock to change it.', true);
       var cur = raw(it, c), field;
       if (col.k === 'sup') field = '<select id="pe">' + R.supOptions(S.suppliers, it[col.f] || '', '—').replace(/<option value="__new__">[^<]*<\/option>/, '') + '</select>';
       else if (col.k === 'sec') field = '<select id="pe">' + opts(SECS, cur) + '</select>';
@@ -915,7 +922,7 @@
     }
     function startEdit(initial) {
       if (!G.a || editing) return;
-      var r = G.a.r, c = G.a.c, col = COLS[c], it = rows[r]; if (!it) return;
+      var r = G.a.r, c = G.a.c, col = COLS[c], it = itemAt(r); if (!it) return;
       if (col.k === 'ro') return status('In stock is read-only. Use Adjust stock to change it.', 'err');
       if (isSmall()) return popupEdit(r, c);
       var td = tdAt(r, c), ed, opts_ = optionsFor(c);
@@ -956,7 +963,7 @@
     tb.addEventListener('dblclick', function (e) { if (isSmall()) return; var td = e.target.closest('td'); if (!td || !td.hasAttribute('data-c')) return; select(posOf(td)); startEdit(); });
     tb.addEventListener('click', function (e) { if (!isSmall()) return; var td = e.target.closest('td'); if (!td || !td.hasAttribute('data-c')) return; if (td.cellIndex === 0 && false) return; popupEdit(td.parentNode.rowIndex - tb.parentNode.tHead.rows.length, td.cellIndex); });
     $('thead', wrap).addEventListener('mousedown', function (e) {
-      var th = e.target.closest('th'); if (!th || isSmall() || !rows.length) return; e.preventDefault(); wrap.focus({ preventScroll: true });
+      var th = e.target.closest('th'); if (!th || e.target.closest('.hm') || isSmall() || !rows.length) return; e.preventDefault(); wrap.focus({ preventScroll: true });
       var c = th.cellIndex; if (e.shiftKey && G.a) select(G.a, { r: rows.length - 1, c: c }, true); else select({ r: 0, c: c }, { r: rows.length - 1, c: c }, true);
     });
     handle.addEventListener('mousedown', function (e) { e.preventDefault(); e.stopPropagation(); var q_ = rng(); if (!q_) return; fillDrag = { q: q_, to: null }; });
@@ -974,7 +981,7 @@
       if (dragSel) { dragSel = false; paintSel(); }
       if (!fillDrag) return; var f = fillDrag; fillDrag = null; tb.querySelectorAll('td.fillprev').forEach(function (x) { x.classList.remove('fillprev'); });
       if (!f.to) return; var q_ = f.q, t = f.to, l = [], h = q_.r2 - q_.r1 + 1, w = q_.c2 - q_.c1 + 1;
-      for (var r = t.r1; r <= t.r2; r++) for (var c = t.c1; c <= t.c2; c++) { var sr = q_.r1 + (((r - q_.r1) % h) + h) % h, sc = q_.c1 + (((c - q_.c1) % w) + w) % w; l.push({ r: r, c: c, text: raw(rows[sr], sc) }); }
+      for (var r = t.r1; r <= t.r2; r++) for (var c = t.c1; c <= t.c2; c++) { var sr = q_.r1 + (((r - q_.r1) % h) + h) % h, sc = q_.c1 + (((c - q_.c1) % w) + w) % w; l.push({ r: r, c: c, text: raw(itemAt(sr), sc) }); }
       setCells(l);
       select({ r: Math.min(q_.r1, t.r1), c: Math.min(q_.c1, t.c1) }, { r: Math.max(q_.r2, t.r2), c: Math.max(q_.c2, t.c2) }, true);
     });
@@ -1012,13 +1019,76 @@
       select({ r: q_.r1, c: q_.c1 }, { r: Math.min(rows.length - 1, q_.r1 + Math.max(m.length, 1) - 1 + (m.length === 1 ? q_.r2 - q_.r1 : 0)), c: Math.min(COLS.length - 1, q_.c1 + Math.max(m[0].length, 1) - 1 + (m.length === 1 && m[0].length === 1 ? q_.c2 - q_.c1 : 0)) });
     });
 
+    /* column sort and filter (header menus) */
+    st.colFilters = st.colFilters || {};
+    function sortKey(i, c) { var k = COLS[c].k; if (k === 'num' || k === 'ro') { var v = i[COLS[c].f]; return v == null ? null : Number(v); } if (k === 'chk') return i[COLS[c].f] ? 1 : 0; return raw(i, c); }
+    function cmpCol(c, dir) {
+      var k = COLS[c].k, numeric = k === 'num' || k === 'ro' || k === 'chk';
+      return function (a, b) {
+        var x = sortKey(a, c), y = sortKey(b, c), xe = x === null || x === '', ye = y === null || y === ''; if (xe && ye) return byName(a, b); if (xe) return 1; if (ye) return -1;
+        var d = numeric ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }); if (dir === 'desc') d = -d; return d || byName(a, b);
+      };
+    }
+    function colIndex(f) { return cOfField(f); }
+    function passBase(i) { if (st.need === 'inactive') return !i.active && hit(i, st); return (st.need ? NEED[st.need](i) && i.active : i.active) && hit(i, st); }
+    function passCols(i, exceptF) { return Object.keys(st.colFilters).every(function (f) { if (f === exceptF) return true; var c = colIndex(f); return c < 0 || st.colFilters[f].indexOf(raw(i, c)) >= 0; }); }
+    function paintHeads() {
+      [].forEach.call($('thead', wrap).rows[0].cells, function (th, c) {
+        var f = COLS[c].f, on = st.colSort && st.colSort.f === f;
+        th.classList.toggle('sorted', !!on); th.classList.toggle('filtered', !!st.colFilters[f]);
+        var si = $('.hs', th); if (si) si.textContent = on ? (st.colSort.dir === 'desc' ? ' ↓' : ' ↑') : '';
+      });
+      var fl = Object.keys(st.colFilters), box2 = $('#ifilt', box);
+      box2.innerHTML = fl.length || st.colSort ? (st.colSort ? '<button type="button" class="chip" data-clrs="1">Sorted by ' + esc(COLS[colIndex(st.colSort.f)].h) + ' ' + (['num', 'ro', 'chk'].indexOf(COLS[colIndex(st.colSort.f)].k) >= 0 ? (st.colSort.dir === 'desc' ? 'high → low' : 'low → high') : (st.colSort.dir === 'desc' ? 'Z → A' : 'A → Z')) + ' ✕</button>' : '') + fl.map(function (f) { return '<button type="button" class="chip" data-clrf="' + f + '">' + esc(COLS[colIndex(f)].h) + ': ' + st.colFilters[f].length + ' value(s) ✕</button>'; }).join('') + (fl.length > 1 ? '<button type="button" class="chip" data-clra="1">Clear all filters</button>' : '') : '';
+    }
+    box.addEventListener('click', function (e) {
+      var cf = e.target.closest('[data-clrf]'), ca = e.target.closest('[data-clra]'), cs = e.target.closest('[data-clrs]');
+      if (cf) { delete st.colFilters[cf.dataset.clrf]; draw(); } else if (ca) { st.colFilters = {}; draw(); } else if (cs) { st.colSort = null; draw(); }
+    });
+    var menu = null;
+    function closeMenu() { if (menu) { menu.remove(); menu = null; document.removeEventListener('mousedown', outsideMenu, true); document.removeEventListener('keydown', escMenu, true); } }
+    function outsideMenu(e) { if (menu && !menu.contains(e.target) && !e.target.closest('.hm')) closeMenu(); }
+    function escMenu(e) { if (e.key === 'Escape') closeMenu(); }
+    function openMenu(c, btn) {
+      closeMenu(); var col = COLS[c], num = col.k === 'num' || col.k === 'ro' || col.k === 'chk', cur = st.colSort && st.colSort.f === col.f ? st.colSort.dir : '';
+      var counts = {}; S.items.filter(function (i) { return passBase(i) && passCols(i, col.f); }).forEach(function (i) { var v = raw(i, c); counts[v] = (counts[v] || 0) + 1; });
+      var keys = Object.keys(counts).sort(function (x, y) { if (x === '') return 1; if (y === '') return -1; return col.k === 'num' || col.k === 'ro' ? Number(x) - Number(y) : String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }); });
+      var chosen = st.colFilters[col.f] ? st.colFilters[col.f].slice() : null;
+      menu = document.createElement('div'); menu.className = 'hmenu'; menu.setAttribute('role', 'dialog'); menu.setAttribute('aria-label', 'Sort and filter ' + col.h);
+      menu.innerHTML = '<button type="button" data-ms="asc"' + (cur === 'asc' ? ' class="on"' : '') + '>' + (num ? 'Sort low → high' : 'Sort A → Z') + '</button><button type="button" data-ms="desc"' + (cur === 'desc' ? ' class="on"' : '') + '>' + (num ? 'Sort high → low' : 'Sort Z → A') + '</button>' + (cur ? '<button type="button" data-ms="">Clear sort</button>' : '') +
+        '<hr><div class="hq"><input type="search" placeholder="Search values" aria-label="Search values"></div><div class="hb"><button type="button" data-sa>Select all</button><button type="button" data-sn>Clear</button></div><div class="hl">' +
+        keys.map(function (k) { return '<label><input type="checkbox" value="' + esc(k) + '"' + (!chosen || chosen.indexOf(k) >= 0 ? ' checked' : '') + '><span>' + (k === '' ? '(Blank)' : esc(k)) + '</span><i>' + counts[k] + '</i></label>'; }).join('') + '</div>' +
+        '<div class="ha"><button type="button" data-cx>Cancel</button><button type="button" class="pri" data-ok>OK</button></div>';
+      document.body.appendChild(menu);
+      var r = btn.getBoundingClientRect(), mw = menu.offsetWidth, left = Math.max(8, Math.min(r.left, innerWidth - mw - 8)), top = r.bottom + 4; if (top + menu.offsetHeight > innerHeight - 8) top = Math.max(8, innerHeight - menu.offsetHeight - 8);
+      menu.style.left = left + 'px'; menu.style.top = top + 'px';
+      menu.addEventListener('click', function (e) {
+        var ms = e.target.closest('[data-ms]');
+        if (ms) { st.colSort = ms.dataset.ms ? { f: col.f, dir: ms.dataset.ms } : null; closeMenu(); draw(); return; }
+        if (e.target.closest('[data-sa]')) menu.querySelectorAll('.hl input').forEach(function (x) { if (x.closest('label').style.display !== 'none') x.checked = true; });
+        if (e.target.closest('[data-sn]')) menu.querySelectorAll('.hl input').forEach(function (x) { if (x.closest('label').style.display !== 'none') x.checked = false; });
+        if (e.target.closest('[data-cx]')) closeMenu();
+        if (e.target.closest('[data-ok]')) {
+          var all = [].slice.call(menu.querySelectorAll('.hl input')), picked = all.filter(function (x) { return x.checked; }).map(function (x) { return x.value; });
+          if (picked.length === all.length) delete st.colFilters[col.f]; else st.colFilters[col.f] = picked;
+          closeMenu(); draw();
+        }
+      });
+      $('.hq input', menu).addEventListener('input', function (e) { var t = e.target.value.toLowerCase(); menu.querySelectorAll('.hl label').forEach(function (l) { l.style.display = l.textContent.toLowerCase().indexOf(t) >= 0 ? '' : 'none'; }); });
+      document.addEventListener('mousedown', outsideMenu, true); document.addEventListener('keydown', escMenu, true); $('.hq input', menu).focus();
+    }
+    $('thead', wrap).addEventListener('click', function (e) { var b = e.target.closest('.hm'); if (b) { e.stopPropagation(); openMenu(+b.dataset.hm, b); } });
+    R.onCatalog = function () { if (wrap.isConnected) repaintAll(); };
+
     function draw() {
-      var list = S.items.filter(function (i) { if (st.need === 'inactive') return !i.active && hit(i, st); return (st.need ? NEED[st.need](i) && i.active : i.active) && hit(i, st); }).sort(sorter(st.sort || 'name', sm));
-      if (editing) endEdit(false); rows = list; G.a = G.f = null; clipM = null; handle.hidden = true;
+      if (st.sortSeen !== st.sort) { st.colSort = null; st.sortSeen = st.sort; } // picking a preset in the Sort box replaces a column sort
+      var list = S.items.filter(function (i) { return passBase(i) && passCols(i); }).sort(st.colSort ? cmpCol(colIndex(st.colSort.f), st.colSort.dir) : sorter(st.sort || 'name', sm));
+      if (editing) endEdit(false); rows = list.map(function (i) { return i.id; }); G.a = G.f = null; clipM = null; handle.hidden = true;
       $('#icount', box).textContent = list.length + ' item(s)';
       tb.innerHTML = list.map(function (i) { return '<tr data-id="' + i.id + '">' + COLS.map(function (c, ci) { return '<td data-c="' + ci + '" data-label="' + esc(c.h) + '" class="' + (c.num ? 'num ' : '') + (c.k === 'ro' ? 'ro ' : '') + (c.k === 'chk' ? 'ck' : '') + '"><div class="cv">' + esc(shown(i, ci)) + '</div></td>'; }).join('') + '</tr>'; }).join('') || '<tr><td colspan="' + COLS.length + '" class="muted" style="padding:14px">No items match.</td></tr>';
+      paintHeads();
     }
-    wire(box, st, draw); wireSec(box); draw();
+    wire(box, st, draw); wireSec(box); st.sortSeen = st.sort; draw();
     var missing = S.items.filter(function (i) { return i.active && (i.reorder_point == null || i.critical_level == null || i.par_target == null); }).length;
     $('#isugn', box).textContent = missing ? missing + ' item(s) have no reorder, critical or PAR level yet.' : 'Every item has its levels set.';
     $('#isug', box).onclick = function (ev) {
