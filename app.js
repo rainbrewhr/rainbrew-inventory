@@ -135,6 +135,12 @@
     if (r.error) throw new Error(r.error.message);
     return r.data;
   }
+  // same rules as the item_stock view, so a changed reorder / critical level shows its new status without waiting for the server
+  function recalc(i) {
+    var s = Number(i.current_stock), st = (i.critical_level != null && s <= Number(i.critical_level)) ? 'CRITICAL' : (i.reorder_point != null && s <= Number(i.reorder_point)) ? 'LOW' : 'OK';
+    if (s <= 0) st = (i.ever_stocked === false && i.reorder_point == null && i.critical_level == null) ? 'EMPTY' : 'CRITICAL';
+    i.status = st;
+  }
   function setItems(rows) { rows.forEach(function (r) { if (Number(r.current_stock) <= 0) r.status = (r.ever_stocked === false && r.reorder_point == null && r.critical_level == null) ? 'EMPTY' : 'CRITICAL'; }); S.items = rows; S.map = new Map(rows.map(function (r) { return [r.id, r]; })); }
   function takeNav() { var p = S.navParams || {}; S.navParams = null; return p; }
   var catalogInflight = null;
@@ -144,7 +150,7 @@
     if (S.items.length && (!force || fresh)) return;
     if (catalogInflight) return catalogInflight;
     catalogInflight = rpc('catalog').then(function (rows) {
-      setItems(rows); S.catAt = Date.now(); S.catDirty = false; afterCatalog();
+      setItems(rows); S.catAt = Date.now(); S.catDirty = false; afterCatalog(); if (window.RB && window.RB.onCatalog) window.RB.onCatalog();
       try { localStorage.setItem('rb_cat_' + S.user.id, JSON.stringify(rows)); } catch (e) { /* storage unavailable */ }
     }).finally(function () { catalogInflight = null; });
     return catalogInflight;
@@ -994,7 +1000,7 @@
   /* ---------- hooks for extras.js ---------- */
   window.RB = {
     S: S, sb: sb, OPS: OPS, TABS: TABS, views: {}, esc: esc, fmt: fmt, when: when, $: $, role: role, toast: toast, act: act, rpc: rpc, q: q,
-    opts: opts, pill: pill, icon: icon, ui: { popup: popup, confirm: confirmBox, ask: askText, copy: copyBox, empty: emptyState }, openItem: openItem, takeNav: takeNav, allowed: function () { return S.allowed; }, current: function () { return cur; }, TAB_ICON: TAB_ICON, markDirty: function () { S.catDirty = true; }, lineBuilder: lineBuilder, loadCatalog: loadCatalog, stations: stations, suppliers: suppliers, show: show,
+    recalc: recalc, refreshAlerts: function () { paintBell(); }, opts: opts, pill: pill, icon: icon, ui: { popup: popup, confirm: confirmBox, ask: askText, copy: copyBox, empty: emptyState }, openItem: openItem, takeNav: takeNav, allowed: function () { return S.allowed; }, current: function () { return cur; }, TAB_ICON: TAB_ICON, markDirty: function () { S.catDirty = true; }, lineBuilder: lineBuilder, loadCatalog: loadCatalog, stations: stations, suppliers: suppliers, show: show,
     requestSelect: requestSelect, supOptions: supOptions, UNITS: UNITS, prefill: null, openLines: openLines, unitFor: unitFor, suggested: suggested, current: function () { return cur; }
   };
 
