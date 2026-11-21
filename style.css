@@ -550,3 +550,12 @@ table.sheet th.filtered .hm,table.sheet th.sorted .hm{color:var(--accent-ink);ba
 .hmenu .hl label i{font-style:normal;color:var(--mute);font-size:13px;font-variant-numeric:tabular-nums}
 .hmenu .ha{display:flex;justify-content:flex-end;gap:6px;padding-top:4px}
 .hmenu .ha .pri{background:var(--accent);color:#fff;text-align:center}.hmenu .ha .pri:hover{background:var(--accent)}
+
+/* ---------- popups never outgrow the screen: the body scrolls, the title and buttons stay ---------- */
+.modal .sheet{display:flex;flex-direction:column;max-height:calc(100dvh - 32px);overflow:hidden}
+.modal .sheet .sh,.modal .sheet .sf{flex:none}
+.modal .sheet .sb{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+@media (max-width:767px){.modal .sheet{max-height:calc(100dvh - 12px)}}
+.pushbox{margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--panel2)}
+.pushlist{margin:8px 0 10px;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+.pushbox .btn{margin-top:2px}

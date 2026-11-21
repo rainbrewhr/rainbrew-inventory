@@ -123,7 +123,7 @@
     try { await fn(); } catch (e) { toast((e && e.message) || String(e), true); }
     finally { if (btn) btn.disabled = false; }
   }
-  var READ_ONLY_RPC = { catalog: 1, next_id: 1 };
+  var READ_ONLY_RPC = { catalog: 1, next_id: 1, push_public_key: 1, save_push_subscription: 1, delete_push_subscription: 1 };
   async function rpc(name, args) {
     var r = await sb.rpc(name, args || {});
     if (r.error) throw new Error(r.error.message);
@@ -311,12 +311,6 @@
     n.classList.toggle('warn', !fresh.some(function (i) { return i.status === 'CRITICAL'; }));
     b.setAttribute('aria-label', 'Stock alerts: ' + fresh.length + ' new, ' + tot.length + ' in total');
   }
-  function deviceNotify(title, body) {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    var opts = { body: body, icon: 'app-icon-192.png', badge: 'app-favicon-32.png', tag: 'rb-stock-alerts', renotify: true };
-    if (navigator.serviceWorker && navigator.serviceWorker.ready) navigator.serviceWorker.ready.then(function (reg) { return reg.showNotification(title, opts); }).catch(function () { try { new Notification(title, opts); } catch (e) { /* ignore */ } });
-    else { try { new Notification(title, opts); } catch (e) { /* ignore */ } }
-  }
   function afterCatalog(initial) {
     if (!S.profile || ALERT_ROLES.indexOf(S.profile.role) < 0) return;
     // an item that recovered can alert again next time it drops
@@ -324,17 +318,22 @@
     alertItems().forEach(function (i) { live[i.id] = 1; });
     Object.keys(seen).forEach(function (id) { if (!live[id]) { delete seen[id]; changed = true; } });
     if (changed) saveSeen(seen);
-    var fresh = newAlerts();
-    S.announced = S.announced || {};
-    var tell = fresh.filter(function (i) { return !S.announced[i.id + ':' + i.status]; });
-    tell.forEach(function (i) { S.announced[i.id + ':' + i.status] = 1; });
-    if (tell.length) {
-      var crit = tell.filter(function (i) { return i.status === 'CRITICAL'; }).length, names = tell.slice(0, 3).map(function (i) { return i.name; }).join(', ') + (tell.length > 3 ? ' +' + (tell.length - 3) + ' more' : '');
-      var msg = (crit ? crit + ' critical' + (tell.length > crit ? ', ' + (tell.length - crit) + ' low' : '') : tell.length + ' low') + ' · ' + names;
-      if (document.hidden && !initial) deviceNotify('Stock alert', msg); else if (!document.hidden) toast(msg, crit > 0);
-    }
     paintBell();
   }
+  /* Web Push: new requests arrive right away; low and critical stock arrives as one summary at 7 PM (sent by the server) */
+  var PUSH_OK = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  function keyBytes(s) { var p = '='.repeat((4 - s.length % 4) % 4), b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')), o = new Uint8Array(b.length); for (var k = 0; k < b.length; k++) o[k] = b.charCodeAt(k); return o; }
+  async function pushSub() { if (!PUSH_OK) return null; var reg = await navigator.serviceWorker.ready; return reg.pushManager.getSubscription(); }
+  async function pushOn() {
+    var perm = await Notification.requestPermission();
+    if (perm !== 'granted') throw new Error('Notifications were not allowed. Allow them for this site in the browser settings, then try again.');
+    var key = await rpc('push_public_key'); if (!key) throw new Error('Alerts are not ready on the server yet. Try again in a minute.');
+    var reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
+    var j = sub.toJSON();
+    await rpc('save_push_subscription', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_ua: String(navigator.userAgent).slice(0, 120) });
+  }
+  async function pushOff() { var sub = await pushSub(); if (sub) { var ep = sub.endpoint; await sub.unsubscribe(); await rpc('delete_push_subscription', { p_endpoint: ep }); } }
   function startAlertWatch() {
     if (alertTimer || !S.profile || ALERT_ROLES.indexOf(S.profile.role) < 0) return;
     var tick = function () { if (S.user) loadCatalog(true).catch(function () { /* offline: try again later */ }); };
@@ -345,10 +344,13 @@
     var fresh = {}; newAlerts().forEach(function (i) { fresh[i.id] = 1; });
     var items = alertItems(), crit = items.filter(function (i) { return i.status === 'CRITICAL'; }), low = items.filter(function (i) { return i.status === 'LOW'; });
     function rows(list) { return list.map(function (i) { return '<button type="button" class="arow" data-ai="' + i.id + '"><span class="adot ' + (i.status === 'CRITICAL' ? 'crit' : 'warn') + '"></span><span class="grow"><b>' + esc(i.name) + '</b><small>' + fmt(i.current_stock) + ' ' + esc(i.unit || '') + (i.reorder_point != null ? ' · reorder at ' + fmt(i.reorder_point) : '') + '</small></span>' + (fresh[i.id] ? '<span class="pill Pending">New</span>' : '') + '</button>'; }).join(''); }
+    var sub = null; try { sub = await pushSub(); } catch (e) { /* not available */ }
     var perm = 'Notification' in window ? Notification.permission : 'unsupported';
-    var dev = perm === 'granted' ? '<p class="muted" style="margin:12px 0 0">' + icon('check', 'sm') + ' Device alerts are on. You get a notification when new items run low while the app is open in the background.</p>'
-      : perm === 'denied' ? '<p class="muted" style="margin:12px 0 0">Device alerts are blocked in this browser. Allow notifications for this site in the browser settings to turn them on.</p>'
-      : perm === 'unsupported' ? '' : '<button type="button" class="btn alt sm" id="adev" style="margin-top:12px">' + icon('bell', 'sm') + 'Turn on device alerts</button>';
+    var what = '<ul class="pushlist"><li><b>New requests</b> arrive right away.</li><li><b>Low and critical stock</b> arrives as one summary every day at 7 PM.</li></ul>';
+    var dev = '<div class="pushbox"><b>' + icon('bell', 'sm') + ' Alerts on this device</b>' + (!PUSH_OK ? '<p class="muted" style="margin:6px 0 0">This browser cannot receive alerts. On an iPhone, add the app to the Home Screen first, then open it from there.</p>'
+      : perm === 'denied' ? '<p class="muted" style="margin:6px 0 0">Alerts are blocked in this browser. Allow notifications for this site in the browser settings to turn them on.</p>'
+      : sub && perm === 'granted' ? '<p style="margin:6px 0 0;color:var(--ok);font-weight:600">On for this device</p>' + what + '<button type="button" class="btn alt sm" id="adevoff">Turn off</button>'
+      : what + '<button type="button" class="btn sm" id="adev">Turn on alerts on this device</button>') + '</div>';
     var body = items.length ? (crit.length ? '<div class="section" style="margin-top:0">Critical or out (' + crit.length + ')</div><div class="alist">' + rows(crit) + '</div>' : '') + (low.length ? '<div class="section">Running low (' + low.length + ')</div><div class="alist">' + rows(low) + '</div>' : '') + dev
       : emptyState('done', 'Everything is stocked', 'You will be alerted here as soon as an item reaches its reorder or critical level.') + dev;
     var seenNow = alertSeen(); items.forEach(function (i) { seenNow[i.id] = SEV[i.status]; }); saveSeen(seenNow); paintBell();
@@ -357,7 +359,9 @@
       var m = document.querySelector('.modal'); if (!m) return;
       m.addEventListener('click', function (e) {
         var a = e.target.closest('[data-ai]'); if (a) { var x = m.querySelector('[data-x]'); if (x) x.click(); setTimeout(function () { openItem(a.dataset.ai); }, 60); return; }
-        var d = e.target.closest('#adev'); if (d) Notification.requestPermission().then(function (p) { toast(p === 'granted' ? 'Device alerts are on' : 'Device alerts were not allowed', p !== 'granted'); var x = m.querySelector('[data-x]'); if (x) x.click(); });
+        var d = e.target.closest('#adev'), o = e.target.closest('#adevoff');
+        if (d) { d.disabled = true; pushOn().then(function () { toast('Alerts are on for this device'); var x = m.querySelector('[data-x]'); if (x) x.click(); }, function (err) { d.disabled = false; toast(err.message || String(err), true); }); }
+        if (o) { o.disabled = true; pushOff().then(function () { toast('Alerts are off for this device'); var x = m.querySelector('[data-x]'); if (x) x.click(); }, function (err) { o.disabled = false; toast(err.message || String(err), true); }); }
       });
     }, 0);
     var v = await res; if (v === 'stock') show('stock', { status: crit.length ? 'CRITICAL' : 'LOW' });
